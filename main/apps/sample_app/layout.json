@@ -1,0 +1,61 @@
+{
+    "screen": {
+        "background_color": "#1a1a2e",
+        "children": [
+            {
+                "type": "label",
+                "id": "title",
+                "text": "Sample Dynamic App",
+                "font": "montserrat_14",
+                "color": "#FFFFFF",
+                "align": "top_mid",
+                "x": 0,
+                "y": 50
+            },
+            {
+                "type": "button",
+                "id": "btn_hello",
+                "text": "Say Hello",
+                "width": 200,
+                "height": 50,
+                "bg_color": "#4a4a6a",
+                "align": "center",
+                "x": 0,
+                "y": -50,
+                "on_click": "show_message"
+            },
+            {
+                "type": "label",
+                "id": "message",
+                "text": "Welcome to dynamic apps!",
+                "font": "montserrat_14",
+                "color": "#00FF00",
+                "align": "center",
+                "x": 0,
+                "y": 50
+            },
+            {
+                "type": "button",
+                "id": "btn_back",
+                "text": "Back",
+                "width": 100,
+                "height": 40,
+                "bg_color": "#3a3a5a",
+                "align": "bottom_left",
+                "x": 20,
+                "y": -20,
+                "on_click": "go_home"
+            }
+        ]
+    },
+    "commands": {
+        "show_message": {
+            "action": "set_text",
+            "target": "message",
+            "value": "Hello from dynamic app!"
+        },
+        "go_home": {
+            "action": "go_home"
+        }
+    }
+}

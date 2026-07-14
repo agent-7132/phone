@@ -1,0 +1,11 @@
+{
+    "name": "sample_app",
+    "title": "Sample App",
+    "version": "1.0.0",
+    "author": "Developer",
+    "description": "A sample dynamic application for ESP32-P4 Phone",
+    "icon": "icon.txt",
+    "entry_point": "layout.json",
+    "type": "dynamic",
+    "permissions": ["display", "touch", "i2c"]
+}

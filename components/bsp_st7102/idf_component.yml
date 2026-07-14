@@ -1,0 +1,19 @@
+dependencies:
+  idf: '>=5.5,<7.0'
+  espressif/esp_lvgl_port: '>=2.7'
+  lvgl/lvgl: '>=9.0'
+  espressif/esp_lcd_touch_st7123: '>=1.0'
+  kevincoooool/esp_lcd_st7102: '>=1.0'
+description: ESP32-P4 BSP for ST7102 LCD + ST7123 Touch (4.3" 480x800)
+repository: git://github.com/waveshareteam/Waveshare-ESP32-components.git
+tags:
+- bsp
+- esp32p4
+- display
+- st7102
+- st7123
+- mipi-dsi
+targets:
+- esp32p4
+url: https://github.com/waveshareteam/Waveshare-ESP32-components
+version: 1.0.0

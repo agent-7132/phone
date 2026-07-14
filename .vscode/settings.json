@@ -1,0 +1,20 @@
+{
+  "C_Cpp.intelliSenseEngine": "default",
+  "idf.extensionActivationMode": "always",
+  "idf.openOcdConfigs": [
+    "board/esp32p4-builtin.cfg"
+  ],
+  "idf.portWin": "COM7",
+  "idf.currentSetup": "D:\\esp\\v5.5.4\\esp-idf",
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32p4",
+    "ADF_PATH": "D:\\esp\\Espressif\\esp-adf"
+  },
+  "clangd.path": "C:\\Espressif\\tools\\esp-clang\\esp-19.1.2_20250312\\esp-clang\\bin\\clangd.exe",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=e:\\phone\\build"
+  ],
+  "idf.flashType": "UART"
+}
