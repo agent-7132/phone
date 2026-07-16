@@ -1,0 +1,16 @@
+menu "GPIO Interrupt Example Configuration"
+
+    config EXAMPLE_GPIO_INPUT
+        int "Input GPIO number"
+        default 3
+
+    config EXAMPLE_GPIO_INPUT_PULLUP
+        bool "Enable input pull-up"
+        default y
+
+    config EXAMPLE_DEBOUNCE_MS
+        int "Debounce time in ms"
+        default 50
+
+endmenu
+

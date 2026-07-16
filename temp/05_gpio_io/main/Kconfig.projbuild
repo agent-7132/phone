@@ -1,0 +1,24 @@
+# GPIO IO示例配置菜单
+# 
+# 该文件定义了menuconfig中"GPIO IO Example Configuration"菜单下的配置选项，
+# 用户可以通过idf.py menuconfig命令修改这些配置。
+
+# 定义配置菜单名称
+menu "GPIO IO Example Configuration"
+
+    # 输出GPIO编号配置
+    config EXAMPLE_GPIO_OUTPUT
+        int "Output GPIO number"  # 配置项名称
+        default 2                # 默认值为GPIO2
+
+    # 输入GPIO编号配置
+    config EXAMPLE_GPIO_INPUT
+        int "Input GPIO number"   # 配置项名称
+        default 3                # 默认值为GPIO3
+
+    # 输入GPIO上拉使能配置
+    config EXAMPLE_GPIO_INPUT_PULLUP
+        bool "Enable input pull-up"  # 配置项名称（布尔类型）
+        default y                    # 默认启用上拉电阻
+
+endmenu  # 结束配置菜单定义

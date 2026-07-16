@@ -1,5 +1,9 @@
-nvs,      data, nvs,     0x9000,  0x6000,
-phy_init, data, phy,     0xf000,  0x1000,
-factory,  app,  factory, 0x10000, 0x200000,
-assets,   data, spiffs,  0x210000,0x800000,
-storage,  data, spiffs,  0xa10000,0x200000,
+# Name,   Type, SubType, Offset,  Size, Flags
+# Custom partition table with OTA support (16MB flash)
+nvs,      data, nvs,     0x9000,  0x20000,
+phy_init, data, phy,     0x29000, 0x1000,
+factory,  app,  factory, 0x30000, 2M,
+ota_0,    app,  ota_0,   0x230000,2M,
+ota_1,    app,  ota_1,   0x430000,2M,
+assets,   data, fat,     0x630000, 6M,
+storage,  data, fat,     0xC30000, 0x3D0000,

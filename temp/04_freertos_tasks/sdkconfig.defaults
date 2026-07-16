@@ -1,0 +1,35 @@
+# ESP-IDF项目默认配置文件
+# 
+# 此文件包含项目的默认SDK配置选项，这些选项会在运行idf.py menuconfig时
+# 作为默认值加载。用户可以通过menuconfig工具修改这些配置，修改后的配置
+# 会保存到sdkconfig文件中。
+#
+# 注意：
+#   1. sdkconfig.defaults中的配置项优先级低于sdkconfig文件中的配置项
+#   2. 如果sdkconfig文件不存在，构建系统会使用此文件作为默认配置
+#   3. 修改此文件后，需要删除sdkconfig文件并重新运行idf.py build才能生效
+
+# 目标芯片配置
+CONFIG_IDF_TARGET="esp32p4"        # 指定目标芯片为ESP32-P4
+
+# Flash配置
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y   # Flash读写模式设置为QIO（四输入输出）
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y  # Flash容量设置为16MB
+
+# 编译器优化配置
+CONFIG_COMPILER_OPTIMIZATION_PERF=y # 使用性能优化模式（-O2）
+
+# PSRAM（伪静态随机存储器）配置
+CONFIG_SPIRAM=y                    # 启用PSRAM（外部RAM）支持
+CONFIG_SPIRAM_SPEED_200M=y         # PSRAM工作频率设置为200MHz
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y     # 启用从PSRAM执行代码（XIP）功能
+
+# 缓存配置
+CONFIG_CACHE_L2_CACHE_256KB=y      # L2缓存大小设置为256KB
+CONFIG_CACHE_L2_CACHE_LINE_128B=y  # L2缓存行大小设置为128字节
+
+# FreeRTOS配置
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=10240   # 主任务（app_main）堆栈大小设置为10KB
+CONFIG_FREERTOS_HZ=1000                 # FreeRTOS时钟节拍频率设置为1000Hz
+CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y  # 在任务列表中显示CPU核心ID
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y   # 启用运行时统计功能（用于任务监控和调试）

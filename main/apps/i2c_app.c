@@ -1,6 +1,7 @@
 #include "i2c_app.h"
 #include "status_bar.h"
 #include "app_manager.h"
+#include "ui_animation.h"
 #include "bsp/esp32_p4_platform.h"
 #include "driver/i2c_master.h"
 #include "esp_log.h"
@@ -73,6 +74,13 @@ static void back_button_cb(lv_event_t *e)
     app_manager_go_home();
 }
 
+void i2c_app_on_exit(void)
+{
+    result_text = NULL;
+    scan_btn = NULL;
+    ESP_LOGI(TAG, "I2C app exited and cleaned up");
+}
+
 lv_obj_t *i2c_app_create(void)
 {
     lv_obj_t *scr = lv_obj_create(NULL);
@@ -88,11 +96,14 @@ lv_obj_t *i2c_app_create(void)
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 50);
 
     scan_btn = lv_btn_create(scr);
-    lv_obj_set_size(scan_btn, 200, 50);
-    lv_obj_set_style_bg_color(scan_btn, lv_color_hex(0x4a4a6a), 0);
-    lv_obj_set_style_bg_color(scan_btn, lv_color_hex(0x5a5a8a), LV_STATE_PRESSED);
+    lv_obj_set_size(scan_btn, 200, 56);
+    lv_obj_set_style_bg_color(scan_btn, lv_color_hex(0x4CAF50), 0);
+    lv_obj_set_style_bg_color(scan_btn, lv_color_hex(0x388E3C), LV_STATE_PRESSED);
     lv_obj_set_style_border_width(scan_btn, 0, 0);
-    lv_obj_set_style_radius(scan_btn, 8, 0);
+    lv_obj_set_style_radius(scan_btn, 12, 0);
+    lv_obj_set_style_shadow_width(scan_btn, 6, 0);
+    lv_obj_set_style_shadow_color(scan_btn, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(scan_btn, 50, 0);
     lv_obj_align(scan_btn, LV_ALIGN_TOP_MID, 0, 100);
     lv_obj_add_event_cb(scan_btn, scan_i2c, LV_EVENT_CLICKED, NULL);
 
@@ -103,27 +114,32 @@ lv_obj_t *i2c_app_create(void)
     lv_obj_center(btn_label);
 
     lv_obj_t *container = lv_obj_create(scr);
-    lv_obj_set_size(container, 400, 300);
-    lv_obj_set_style_bg_color(container, lv_color_hex(0x252540), 0);
-    lv_obj_set_style_border_width(container, 1, 0);
-    lv_obj_set_style_border_color(container, lv_color_hex(0x3a3a5a), 0);
-    lv_obj_set_style_radius(container, 10, 0);
+    lv_obj_set_size(container, 440, 350);
+    lv_obj_set_style_bg_color(container, lv_color_hex(0x202038), 0);
+    lv_obj_set_style_border_width(container, 0, 0);
+    lv_obj_set_style_radius(container, 16, 0);
+    lv_obj_set_style_shadow_width(container, 8, 0);
+    lv_obj_set_style_shadow_color(container, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(container, 60, 0);
     lv_obj_align(container, LV_ALIGN_CENTER, 0, 50);
 
     result_text = lv_label_create(container);
     lv_label_set_text(result_text, "Press scan button to start");
     lv_obj_set_style_text_font(result_text, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(result_text, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_pad_all(result_text, 10, 0);
-    lv_obj_set_size(result_text, 380, 280);
+    lv_obj_set_style_text_color(result_text, lv_color_hex(0xCCCCCC), 0);
+    lv_obj_set_style_pad_all(result_text, 15, 0);
+    lv_obj_set_size(result_text, 410, 320);
     lv_label_set_long_mode(result_text, LV_LABEL_LONG_SCROLL_CIRCULAR);
 
     lv_obj_t *back_btn = lv_btn_create(scr);
-    lv_obj_set_size(back_btn, 100, 40);
+    lv_obj_set_size(back_btn, 100, 45);
     lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x3a3a5a), 0);
     lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x4a4a6a), LV_STATE_PRESSED);
     lv_obj_set_style_border_width(back_btn, 0, 0);
-    lv_obj_set_style_radius(back_btn, 8, 0);
+    lv_obj_set_style_radius(back_btn, 10, 0);
+    lv_obj_set_style_shadow_width(back_btn, 4, 0);
+    lv_obj_set_style_shadow_color(back_btn, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(back_btn, 40, 0);
     lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 20, -20);
     lv_obj_add_event_cb(back_btn, back_button_cb, LV_EVENT_CLICKED, NULL);
 
@@ -133,6 +149,8 @@ lv_obj_t *i2c_app_create(void)
     lv_obj_set_style_text_color(back_label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(back_label);
 
-    ESP_LOGI(TAG, "I2C app created");
+    ui_animation_slide(scr, LV_DIR_RIGHT, 300);
+
+    ESP_LOGI(TAG, "I2C app created with modern design");
     return scr;
 }

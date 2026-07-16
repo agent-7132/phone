@@ -37,6 +37,7 @@ typedef struct {
         struct {
             char entry_point[128];
             void *engine_data;
+            void (*on_exit)(void);
         } dynamic;
     } data;
 } app_info_t;

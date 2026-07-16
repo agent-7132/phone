@@ -1,0 +1,44 @@
+# ESP-IDF项目默认配置文件
+# 本文件定义项目的默认编译配置选项，使用idf.py save-defconfig生成，可手动编辑
+# 基于Espressif IoT Development Framework (ESP-IDF) 5.4.0项目最小配置
+
+# ==================== 目标芯片配置 ====================
+# 指定目标芯片为ESP32-P4
+CONFIG_IDF_TARGET="esp32p4"
+
+# ==================== Flash配置 ====================
+# 设置Flash工作模式为QIO（Quad I/O），支持更高的读写速度
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+# 设置Flash容量为16MB
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+# ==================== 编译器优化配置 ====================
+# 设置编译器优化级别为性能优先（-O2），平衡代码大小和执行速度
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# ==================== PSRAM配置 ====================
+# 启用外部PSRAM支持
+CONFIG_SPIRAM=y
+# 设置PSRAM工作速度为200MHz
+CONFIG_SPIRAM_SPEED_200M=y
+# 启用从PSRAM执行代码（XIP）功能，扩展代码空间
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y
+
+# ==================== 缓存配置 ====================
+# 设置L2缓存大小为256KB，提升内存访问性能
+CONFIG_CACHE_L2_CACHE_256KB=y
+# 设置缓存行大小为128字节，优化数据预取效率
+CONFIG_CACHE_L2_CACHE_LINE_128B=y
+
+# ==================== 主任务栈配置 ====================
+# 设置主任务（app_main）的栈大小为10240字节（10KB）
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=10240
+
+# ==================== FreeRTOS配置 ====================
+# 设置FreeRTOS系统时钟频率为1000Hz（1ms tick），提高任务调度精度
+CONFIG_FREERTOS_HZ=1000
+# 在vTaskList输出中包含核心ID信息，便于多核调试
+CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y
+# 启用运行时统计功能，用于任务执行时间分析
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+

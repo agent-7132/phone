@@ -1,6 +1,7 @@
 #include "audio_app.h"
 #include "status_bar.h"
 #include "app_manager.h"
+#include "ui_animation.h"
 #include "bsp/esp32_p4_platform.h"
 #include "esp_codec_dev.h"
 #include "esp_log.h"
@@ -61,6 +62,17 @@ static void back_button_cb(lv_event_t *e)
     app_manager_go_home();
 }
 
+void audio_app_on_exit(void)
+{
+    if (speaker) {
+        esp_codec_dev_close(speaker);
+        speaker = NULL;
+    }
+    status_label = NULL;
+    volume_slider = NULL;
+    ESP_LOGI(TAG, "Audio app exited and cleaned up");
+}
+
 lv_obj_t *audio_app_create(void)
 {
     lv_obj_t *scr = lv_obj_create(NULL);
@@ -78,47 +90,64 @@ lv_obj_t *audio_app_create(void)
     status_label = lv_label_create(scr);
     lv_label_set_text(status_label, "Status: Not initialized");
     lv_obj_set_style_text_font(status_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(status_label, lv_color_hex(0xAAAAAA), 0);
+    lv_obj_set_style_text_color(status_label, lv_color_hex(0x87CEEB), 0);
     lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 80);
 
-    lv_obj_t *init_btn = lv_btn_create(scr);
-    lv_obj_set_size(init_btn, 150, 50);
-    lv_obj_set_style_bg_color(init_btn, lv_color_hex(0x4a4a6a), 0);
-    lv_obj_set_style_bg_color(init_btn, lv_color_hex(0x5a5a8a), LV_STATE_PRESSED);
+    lv_obj_t *control_card = lv_obj_create(scr);
+    lv_obj_set_size(control_card, 400, 280);
+    lv_obj_set_style_bg_color(control_card, lv_color_hex(0x252540), 0);
+    lv_obj_set_style_border_width(control_card, 0, 0);
+    lv_obj_set_style_radius(control_card, 16, 0);
+    lv_obj_set_style_shadow_width(control_card, 8, 0);
+    lv_obj_set_style_shadow_color(control_card, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(control_card, 60, 0);
+    lv_obj_align(control_card, LV_ALIGN_CENTER, 0, 20);
+
+    lv_obj_t *init_btn = lv_btn_create(control_card);
+    lv_obj_set_size(init_btn, 160, 56);
+    lv_obj_set_style_bg_color(init_btn, lv_color_hex(0x4CAF50), 0);
+    lv_obj_set_style_bg_color(init_btn, lv_color_hex(0x388E3C), LV_STATE_PRESSED);
     lv_obj_set_style_border_width(init_btn, 0, 0);
-    lv_obj_set_style_radius(init_btn, 8, 0);
-    lv_obj_align(init_btn, LV_ALIGN_TOP_MID, 0, 120);
+    lv_obj_set_style_radius(init_btn, 12, 0);
+    lv_obj_set_style_shadow_width(init_btn, 4, 0);
+    lv_obj_set_style_shadow_color(init_btn, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(init_btn, 40, 0);
+    lv_obj_align(init_btn, LV_ALIGN_TOP_MID, 0, 25);
     lv_obj_add_event_cb(init_btn, init_audio, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *init_label = lv_label_create(init_btn);
-    lv_label_set_text(init_label, "Init Audio");
+    lv_label_set_text(init_label, "🎵 Init Audio");
     lv_obj_set_style_text_font(init_label, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(init_label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(init_label);
 
-    lv_obj_t *vol_label = lv_label_create(scr);
+    lv_obj_t *vol_label = lv_label_create(control_card);
     lv_label_set_text(vol_label, "Volume");
     lv_obj_set_style_text_font(vol_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(vol_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(vol_label, LV_ALIGN_LEFT_MID, 40, 0);
+    lv_obj_set_style_text_color(vol_label, lv_color_hex(0xCCCCCC), 0);
+    lv_obj_align(vol_label, LV_ALIGN_LEFT_MID, 20, 95);
 
-    volume_slider = lv_slider_create(scr);
-    lv_obj_set_size(volume_slider, 200, 20);
+    volume_slider = lv_slider_create(control_card);
+    lv_obj_set_size(volume_slider, 350, 24);
     lv_slider_set_range(volume_slider, 0, 100);
     lv_slider_set_value(volume_slider, 50, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(volume_slider, lv_color_hex(0x3a3a5a), 0);
-    lv_obj_set_style_bg_color(volume_slider, lv_color_hex(0x5a5a8a), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(volume_slider, lv_color_hex(0x4CAF50), LV_PART_INDICATOR);
     lv_obj_set_style_border_width(volume_slider, 0, 0);
-    lv_obj_align(volume_slider, LV_ALIGN_CENTER, 0, -30);
+    lv_obj_set_style_radius(volume_slider, 12, 0);
+    lv_obj_align(volume_slider, LV_ALIGN_TOP_MID, 0, 135);
     lv_obj_add_event_cb(volume_slider, volume_changed, LV_EVENT_VALUE_CHANGED, NULL);
 
-    lv_obj_t *play_btn = lv_btn_create(scr);
-    lv_obj_set_size(play_btn, 200, 60);
-    lv_obj_set_style_bg_color(play_btn, lv_color_hex(0x4a8a6a), 0);
-    lv_obj_set_style_bg_color(play_btn, lv_color_hex(0x5a9a7a), LV_STATE_PRESSED);
+    lv_obj_t *play_btn = lv_btn_create(control_card);
+    lv_obj_set_size(play_btn, 180, 64);
+    lv_obj_set_style_bg_color(play_btn, lv_color_hex(0xFF9800), 0);
+    lv_obj_set_style_bg_color(play_btn, lv_color_hex(0xF57C00), LV_STATE_PRESSED);
     lv_obj_set_style_border_width(play_btn, 0, 0);
-    lv_obj_set_style_radius(play_btn, 8, 0);
-    lv_obj_align(play_btn, LV_ALIGN_CENTER, 0, 50);
+    lv_obj_set_style_radius(play_btn, 32, 0);
+    lv_obj_set_style_shadow_width(play_btn, 6, 0);
+    lv_obj_set_style_shadow_color(play_btn, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(play_btn, 50, 0);
+    lv_obj_align(play_btn, LV_ALIGN_TOP_MID, 0, 185);
     lv_obj_add_event_cb(play_btn, play_tone, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *play_label = lv_label_create(play_btn);
@@ -128,11 +157,14 @@ lv_obj_t *audio_app_create(void)
     lv_obj_center(play_label);
 
     lv_obj_t *back_btn = lv_btn_create(scr);
-    lv_obj_set_size(back_btn, 100, 40);
+    lv_obj_set_size(back_btn, 100, 45);
     lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x3a3a5a), 0);
     lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x4a4a6a), LV_STATE_PRESSED);
     lv_obj_set_style_border_width(back_btn, 0, 0);
-    lv_obj_set_style_radius(back_btn, 8, 0);
+    lv_obj_set_style_radius(back_btn, 10, 0);
+    lv_obj_set_style_shadow_width(back_btn, 4, 0);
+    lv_obj_set_style_shadow_color(back_btn, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(back_btn, 40, 0);
     lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 20, -20);
     lv_obj_add_event_cb(back_btn, back_button_cb, LV_EVENT_CLICKED, NULL);
 
@@ -142,6 +174,8 @@ lv_obj_t *audio_app_create(void)
     lv_obj_set_style_text_color(back_label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(back_label);
 
-    ESP_LOGI(TAG, "Audio app created");
+    ui_animation_slide(scr, LV_DIR_RIGHT, 300);
+
+    ESP_LOGI(TAG, "Audio app created with modern design");
     return scr;
 }

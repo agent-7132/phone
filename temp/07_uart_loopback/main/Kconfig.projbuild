@@ -1,0 +1,20 @@
+menu "UART Loopback Example Configuration"
+
+    config EXAMPLE_UART_PORT_NUM
+        int "UART port number"
+        default 1
+
+    config EXAMPLE_UART_TX_GPIO
+        int "TX GPIO number"
+        default 43
+
+    config EXAMPLE_UART_RX_GPIO
+        int "RX GPIO number"
+        default 44
+
+    config EXAMPLE_UART_BAUD_RATE
+        int "Baud rate"
+        default 115200
+
+endmenu
+

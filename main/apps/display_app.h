@@ -7,6 +7,7 @@ extern "C" {
 #endif
 
 lv_obj_t *display_app_create(void);
+void display_app_on_exit(void);
 
 #ifdef __cplusplus
 }

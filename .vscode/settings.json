@@ -5,7 +5,7 @@
     "board/esp32p4-builtin.cfg"
   ],
   "idf.portWin": "COM7",
-  "idf.currentSetup": "D:\\esp\\v5.5.4\\esp-idf",
+  "idf.currentSetup": "D:\\esp\\v6.0.2\\esp-idf",
   "idf.customExtraVars": {
     "IDF_TARGET": "esp32p4",
     "ADF_PATH": "D:\\esp\\Espressif\\esp-adf"

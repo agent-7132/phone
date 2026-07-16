@@ -1,6 +1,7 @@
 #include "sdcard_app.h"
 #include "status_bar.h"
 #include "app_manager.h"
+#include "ui_animation.h"
 #include "bsp/esp32_p4_platform.h"
 #include "esp_log.h"
 #include <dirent.h>
@@ -30,17 +31,26 @@ static void list_files(const char *path)
         if (entry->d_name[0] == '.') continue;
         
         lv_obj_t *btn = lv_btn_create(file_list);
-        lv_obj_set_width(btn, LV_PCT(100));
+        lv_obj_set_size(btn, 400, 50);
         lv_obj_set_style_bg_color(btn, lv_color_hex(0x252540), 0);
         lv_obj_set_style_bg_color(btn, lv_color_hex(0x353550), LV_STATE_PRESSED);
         lv_obj_set_style_border_width(btn, 0, 0);
-        lv_obj_set_style_radius(btn, 0, 0);
+        lv_obj_set_style_radius(btn, 8, 0);
+        lv_obj_set_style_shadow_width(btn, 4, 0);
+        lv_obj_set_style_shadow_color(btn, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_shadow_opa(btn, 30, 0);
+        
+        lv_obj_t *icon_label = lv_label_create(btn);
+        lv_label_set_text(icon_label, entry->d_type == DT_DIR ? "📁" : "📄");
+        lv_obj_set_style_text_font(icon_label, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(icon_label, lv_color_hex(0x87CEEB), 0);
+        lv_obj_align(icon_label, LV_ALIGN_LEFT_MID, 12, 0);
         
         lv_obj_t *label = lv_label_create(btn);
         lv_label_set_text(label, entry->d_name);
         lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
-        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, 10, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(0xCCCCCC), 0);
+        lv_obj_align(label, LV_ALIGN_LEFT_MID, 45, 0);
         
         count++;
     }
@@ -85,6 +95,14 @@ static void back_button_cb(lv_event_t *e)
     app_manager_go_home();
 }
 
+void sdcard_app_on_exit(void)
+{
+    bsp_sdcard_unmount();
+    file_list = NULL;
+    status_label = NULL;
+    ESP_LOGI(TAG, "SD Card app exited and cleaned up");
+}
+
 lv_obj_t *sdcard_app_create(void)
 {
     lv_obj_t *scr = lv_obj_create(NULL);
@@ -102,15 +120,18 @@ lv_obj_t *sdcard_app_create(void)
     status_label = lv_label_create(scr);
     lv_label_set_text(status_label, "Status: Not mounted");
     lv_obj_set_style_text_font(status_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(status_label, lv_color_hex(0xAAAAAA), 0);
+    lv_obj_set_style_text_color(status_label, lv_color_hex(0x87CEEB), 0);
     lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 80);
 
     lv_obj_t *mount_btn = lv_btn_create(scr);
-    lv_obj_set_size(mount_btn, 100, 40);
-    lv_obj_set_style_bg_color(mount_btn, lv_color_hex(0x4a4a6a), 0);
-    lv_obj_set_style_bg_color(mount_btn, lv_color_hex(0x5a5a8a), LV_STATE_PRESSED);
+    lv_obj_set_size(mount_btn, 100, 45);
+    lv_obj_set_style_bg_color(mount_btn, lv_color_hex(0x4CAF50), 0);
+    lv_obj_set_style_bg_color(mount_btn, lv_color_hex(0x388E3C), LV_STATE_PRESSED);
     lv_obj_set_style_border_width(mount_btn, 0, 0);
-    lv_obj_set_style_radius(mount_btn, 8, 0);
+    lv_obj_set_style_radius(mount_btn, 10, 0);
+    lv_obj_set_style_shadow_width(mount_btn, 4, 0);
+    lv_obj_set_style_shadow_color(mount_btn, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(mount_btn, 40, 0);
     lv_obj_align(mount_btn, LV_ALIGN_TOP_RIGHT, -20, 50);
     lv_obj_add_event_cb(mount_btn, mount_sdcard, LV_EVENT_CLICKED, NULL);
 
@@ -121,12 +142,15 @@ lv_obj_t *sdcard_app_create(void)
     lv_obj_center(mount_label);
 
     lv_obj_t *unmount_btn = lv_btn_create(scr);
-    lv_obj_set_size(unmount_btn, 100, 40);
-    lv_obj_set_style_bg_color(unmount_btn, lv_color_hex(0x6a4a4a), 0);
-    lv_obj_set_style_bg_color(unmount_btn, lv_color_hex(0x7a5a5a), LV_STATE_PRESSED);
+    lv_obj_set_size(unmount_btn, 100, 45);
+    lv_obj_set_style_bg_color(unmount_btn, lv_color_hex(0xE53935), 0);
+    lv_obj_set_style_bg_color(unmount_btn, lv_color_hex(0xC62828), LV_STATE_PRESSED);
     lv_obj_set_style_border_width(unmount_btn, 0, 0);
-    lv_obj_set_style_radius(unmount_btn, 8, 0);
-    lv_obj_align(unmount_btn, LV_ALIGN_TOP_RIGHT, -20, 100);
+    lv_obj_set_style_radius(unmount_btn, 10, 0);
+    lv_obj_set_style_shadow_width(unmount_btn, 4, 0);
+    lv_obj_set_style_shadow_color(unmount_btn, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(unmount_btn, 40, 0);
+    lv_obj_align(unmount_btn, LV_ALIGN_TOP_RIGHT, -20, 105);
     lv_obj_add_event_cb(unmount_btn, unmount_sdcard, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *unmount_label = lv_label_create(unmount_btn);
@@ -136,23 +160,28 @@ lv_obj_t *sdcard_app_create(void)
     lv_obj_center(unmount_label);
 
     lv_obj_t *container = lv_obj_create(scr);
-    lv_obj_set_size(container, 440, 350);
-    lv_obj_set_style_bg_color(container, lv_color_hex(0x252540), 0);
-    lv_obj_set_style_border_width(container, 1, 0);
-    lv_obj_set_style_border_color(container, lv_color_hex(0x3a3a5a), 0);
-    lv_obj_set_style_radius(container, 10, 0);
+    lv_obj_set_size(container, 440, 380);
+    lv_obj_set_style_bg_color(container, lv_color_hex(0x202038), 0);
+    lv_obj_set_style_border_width(container, 0, 0);
+    lv_obj_set_style_radius(container, 16, 0);
+    lv_obj_set_style_shadow_width(container, 8, 0);
+    lv_obj_set_style_shadow_color(container, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(container, 60, 0);
     lv_obj_align(container, LV_ALIGN_CENTER, 0, 40);
 
-    file_list = lv_list_create(container);
-    lv_obj_set_size(file_list, 420, 330);
+    file_list = lv_obj_create(container);
+    lv_obj_set_size(file_list, 420, 350);
     lv_obj_align(file_list, LV_ALIGN_CENTER, 0, 0);
 
     lv_obj_t *back_btn = lv_btn_create(scr);
-    lv_obj_set_size(back_btn, 100, 40);
+    lv_obj_set_size(back_btn, 100, 45);
     lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x3a3a5a), 0);
     lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x4a4a6a), LV_STATE_PRESSED);
     lv_obj_set_style_border_width(back_btn, 0, 0);
-    lv_obj_set_style_radius(back_btn, 8, 0);
+    lv_obj_set_style_radius(back_btn, 10, 0);
+    lv_obj_set_style_shadow_width(back_btn, 4, 0);
+    lv_obj_set_style_shadow_color(back_btn, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(back_btn, 40, 0);
     lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 20, -20);
     lv_obj_add_event_cb(back_btn, back_button_cb, LV_EVENT_CLICKED, NULL);
 
@@ -162,6 +191,8 @@ lv_obj_t *sdcard_app_create(void)
     lv_obj_set_style_text_color(back_label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(back_label);
 
-    ESP_LOGI(TAG, "SD Card app created");
+    ui_animation_slide(scr, LV_DIR_RIGHT, 300);
+
+    ESP_LOGI(TAG, "SD Card app created with modern design");
     return scr;
 }

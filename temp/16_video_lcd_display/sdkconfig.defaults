@@ -1,0 +1,84 @@
+# ============================================================
+# ESP-IDF 项目默认配置文件
+# ============================================================
+# 本文件定义了项目的默认SDK配置参数，构建时会作为基础配置加载。
+# 用户可以通过 idf.py menuconfig 修改这些配置。
+
+# -------------------------- 目标芯片配置 --------------------------
+CONFIG_IDF_TARGET="esp32p4"              # 目标芯片：ESP32-P4
+
+# -------------------------- CSI摄像头配置 --------------------------
+CONFIG_EXAMPLE_MIPI_CSI_SCCB_I2C_SCL_PIN=8    # SCCB/I2C时钟引脚：GPIO8
+CONFIG_EXAMPLE_MIPI_CSI_SCCB_I2C_SDA_PIN=7    # SCCB/I2C数据引脚：GPIO7
+CONFIG_CAMERA_OV5647=y                         # 启用OV5647摄像头驱动
+CONFIG_CAMERA_OV5647_MIPI_RAW8_800x1280_50FPS=y  # OV5647配置：RAW8格式，800x1280分辨率，50FPS
+CONFIG_CAM_CTRL_SPI_ENABLE=n                  # 禁用摄像头SPI控制
+CONFIG_ESP_VIDEO_ENABLE_ISP_PIPELINE_CONTROLLER=y  # 启用ISP管线控制器
+
+# -------------------------- SPIRAM配置 --------------------------
+CONFIG_SPIRAM=y                            # 启用外部SPIRAM
+CONFIG_SPIRAM_SPEED_200M=y                 # SPIRAM速度：200MHz
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y             # 允许从PSRAM执行代码（XIP）
+
+# -------------------------- 缓存配置 --------------------------
+CONFIG_CACHE_L2_CACHE_256KB=y              # L2缓存大小：256KB
+CONFIG_CACHE_L2_CACHE_LINE_128B=y          # L2缓存行大小：128字节
+
+# -------------------------- FreeRTOS配置 --------------------------
+CONFIG_FREERTOS_HZ=1000                    # FreeRTOS时钟频率：1000Hz
+CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y # 在任务列表中显示核心ID
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y  # 生成运行时统计信息
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=10240      # 主任务堆栈大小：10KB
+
+# -------------------------- 网络配置 --------------------------
+CONFIG_LWIP_HOOK_IP6_INPUT_NONE=y          # 禁用IPv6输入钩子
+
+# -------------------------- 构建配置 --------------------------
+CONFIG_IDF_EXPERIMENTAL_FEATURES=y         # 启用实验性功能
+CONFIG_COMPILER_OPTIMIZATION_PERF=y        # 编译优化：性能优先
+
+# -------------------------- Flash配置 --------------------------
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y           # Flash模式：QIO
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y          # Flash大小：16MB
+CONFIG_PARTITION_TABLE_CUSTOM=y            # 使用自定义分区表
+
+# -------------------------- LVGL配置 --------------------------
+CONFIG_LV_USE_CLIB_MALLOC=y                # 使用标准库malloc
+CONFIG_LV_USE_CLIB_STRING=y                # 使用标准库字符串函数
+CONFIG_LV_USE_CLIB_SPRINTF=y               # 使用标准库sprintf
+CONFIG_LV_DEF_REFR_PERIOD=15               # 默认刷新周期：15ms（约66FPS）
+CONFIG_LV_OS_FREERTOS=y                    # 使用FreeRTOS作为LVGL操作系统
+CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=2          # 软件绘制单元数量：2
+
+# LVGL字体配置
+CONFIG_LV_FONT_MONTSERRAT_12=y             # 启用Montserrat 12号字体
+CONFIG_LV_FONT_MONTSERRAT_16=y             # 启用Montserrat 16号字体
+CONFIG_LV_FONT_MONTSERRAT_18=y             # 启用Montserrat 18号字体
+CONFIG_LV_FONT_MONTSERRAT_20=y             # 启用Montserrat 20号字体
+CONFIG_LV_FONT_MONTSERRAT_22=y             # 启用Montserrat 22号字体
+CONFIG_LV_FONT_MONTSERRAT_24=y             # 启用Montserrat 24号字体
+CONFIG_LV_FONT_MONTSERRAT_26=y             # 启用Montserrat 26号字体
+CONFIG_LV_USE_FONT_COMPRESSED=y            # 启用字体压缩
+
+# LVGL文本配置
+CONFIG_LV_TXT_BREAK_CHARS=" ,.;:-_"        # 文本换行分隔符
+
+# LVGL功能配置
+CONFIG_LV_USE_SYSMON=y                     # 启用系统监视器
+CONFIG_LV_USE_PERF_MONITOR=y               # 启用性能监视器
+CONFIG_LV_USE_IMGFONT=y                    # 启用图像字体
+
+# LVGL演示配置
+CONFIG_LV_USE_DEMO_WIDGETS=y               # 启用Widgets演示
+CONFIG_LV_USE_DEMO_BENCHMARK=y             # 启用Benchmark演示
+CONFIG_LV_USE_DEMO_RENDER=y                # 启用Render演示
+CONFIG_LV_USE_DEMO_SCROLL=y                # 启用Scroll演示
+CONFIG_LV_USE_DEMO_STRESS=y                # 启用Stress演示
+CONFIG_LV_USE_DEMO_TRANSFORM=y             # 启用Transform演示
+CONFIG_LV_USE_DEMO_MUSIC=y                 # 启用Music演示
+CONFIG_LV_DEMO_MUSIC_AUTO_PLAY=y           # Music演示自动播放
+CONFIG_LV_USE_DEMO_FLEX_LAYOUT=y           # 启用Flex布局演示
+CONFIG_LV_USE_DEMO_MULTILANG=y             # 启用多语言演示
+
+# -------------------------- BSP LCD配置 --------------------------
+CONFIG_BSP_LCD_DPI_BUFFER_NUMS=3           # LCD DPI缓冲区数量：3个

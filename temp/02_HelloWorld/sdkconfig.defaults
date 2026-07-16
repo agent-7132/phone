@@ -1,0 +1,67 @@
+# ESP-IDF项目默认配置文件
+# 该文件包含项目编译时的默认配置选项，会在执行 idf.py menuconfig 时作为默认值加载
+# 文件由 idf.py save-defconfig 生成，可手动编辑以调整默认配置
+
+# ESP-IDF版本：5.4.0 最小配置模板
+
+
+# ==================== 目标芯片配置 ====================
+# 编译目标芯片型号，当前配置为 ESP32-P4
+CONFIG_IDF_TARGET="esp32p4"
+
+
+# ==================== Flash配置 ====================
+# Flash工作模式：QIO模式（Quad I/O，四线输入输出），提供更高的读取带宽
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+
+# Flash容量：16MB
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+
+# ==================== 编译器优化配置 ====================
+# 编译优化级别：性能优先（Performance）
+# 其他可选值：
+#   - CONFIG_COMPILER_OPTIMIZATION_DEBUG: 调试模式，包含完整调试信息
+#   - CONFIG_COMPILER_OPTIMIZATION_SIZE: 尺寸优先，生成最小代码
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+
+# ==================== PSRAM配置 ====================
+# 启用PSRAM（外部SPI RAM）
+CONFIG_SPIRAM=y
+
+# PSRAM工作速度：200MHz
+CONFIG_SPIRAM_SPEED_200M=y
+
+# 启用从PSRAM执行代码（XIP from PSRAM）
+# 允许将部分代码存储在PSRAM中并直接执行，减少Flash访问压力
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y
+
+
+# ==================== 缓存配置 ====================
+# L2缓存大小：256KB
+CONFIG_CACHE_L2_CACHE_256KB=y
+
+# L2缓存行大小：128字节
+# 缓存行大小影响缓存命中率和内存访问效率，较大的缓存行适合连续访问模式
+CONFIG_CACHE_L2_CACHE_LINE_128B=y
+
+
+# ==================== 主任务配置 ====================
+# 主任务（app_main所在任务）堆栈大小：10240字节（10KB）
+# 堆栈大小应根据实际应用需求调整，堆栈溢出会导致系统崩溃
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=10240
+
+
+# ==================== FreeRTOS配置 ====================
+# FreeRTOS系统节拍频率：1000Hz（1ms）
+# 更高的频率提供更精确的延时，但会增加系统开销
+CONFIG_FREERTOS_HZ=1000
+
+# 在任务列表中包含核心ID信息
+# 启用后，vTaskList()输出将包含任务运行的CPU核心编号
+CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y
+
+# 启用运行时统计功能
+# 允许收集任务运行时间统计信息，用于性能分析和任务调度优化
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y

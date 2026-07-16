@@ -7,6 +7,7 @@ extern "C" {
 #endif
 
 lv_obj_t *sdcard_app_create(void);
+void sdcard_app_on_exit(void);
 
 #ifdef __cplusplus
 }

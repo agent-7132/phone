@@ -5,8 +5,14 @@
 #include "dirent.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include "esp_heap_caps.h"
 
 static const char *TAG = "APP_INSTALLER";
+
+#define EPP_MAGIC "EPP1"
+#define EPP_MAGIC_LEN 4
 
 static void parse_string(const char **json, char *dest, int max_len)
 {
@@ -110,8 +116,122 @@ static install_result_t read_manifest(const char *app_path, app_info_t *app)
     return parse_manifest(buffer, app);
 }
 
+static int epp_extract(const char *epp_file, const char *dest_dir)
+{
+    FILE *f = fopen(epp_file, "rb");
+    if (!f) {
+        ESP_LOGE(TAG, "Cannot open EPP file: %s", epp_file);
+        return -1;
+    }
+    
+    char magic[EPP_MAGIC_LEN + 1] = {0};
+    if (fread(magic, 1, EPP_MAGIC_LEN, f) != EPP_MAGIC_LEN || 
+        strcmp(magic, EPP_MAGIC) != 0) {
+        ESP_LOGE(TAG, "Invalid EPP magic: %s", magic);
+        fclose(f);
+        return -1;
+    }
+    
+    uint32_t file_count;
+    if (fread(&file_count, sizeof(file_count), 1, f) != 1) {
+        ESP_LOGE(TAG, "Cannot read file count");
+        fclose(f);
+        return -1;
+    }
+    
+    for (uint32_t i = 0; i < file_count; i++) {
+        uint16_t path_len;
+        if (fread(&path_len, sizeof(path_len), 1, f) != 1) {
+            ESP_LOGE(TAG, "Cannot read path length");
+            fclose(f);
+            return -1;
+        }
+        
+        char *path = (char *)heap_caps_malloc(path_len + 1, MALLOC_CAP_SPIRAM);
+        if (!path) {
+            ESP_LOGE(TAG, "Cannot allocate memory for path");
+            fclose(f);
+            return -1;
+        }
+        
+        if (fread(path, 1, path_len, f) != path_len) {
+            ESP_LOGE(TAG, "Cannot read path");
+            heap_caps_free(path);
+            fclose(f);
+            return -1;
+        }
+        path[path_len] = '\0';
+        
+        uint32_t content_len;
+        if (fread(&content_len, sizeof(content_len), 1, f) != 1) {
+            ESP_LOGE(TAG, "Cannot read content length");
+            heap_caps_free(path);
+            fclose(f);
+            return -1;
+        }
+        
+        char full_path[1024];
+        snprintf(full_path, sizeof(full_path), "%s/%s", dest_dir, path);
+        full_path[sizeof(full_path) - 1] = '\0';
+        
+        size_t full_path_len = strlen(full_path) + 1;
+        char *dir_path = heap_caps_malloc(full_path_len, MALLOC_CAP_SPIRAM);
+        strcpy(dir_path, full_path);
+        char *last_slash = strrchr(dir_path, '/');
+        if (last_slash) {
+            *last_slash = '\0';
+            mkdir(dir_path, 0755);
+        }
+        heap_caps_free(dir_path);
+        
+        char *content = (char *)heap_caps_malloc(content_len, MALLOC_CAP_SPIRAM);
+        if (!content) {
+            ESP_LOGE(TAG, "Cannot allocate memory for content in PSRAM");
+            heap_caps_free(path);
+            fclose(f);
+            return -1;
+        }
+        
+        if (fread(content, 1, content_len, f) != content_len) {
+            ESP_LOGE(TAG, "Cannot read content");
+            heap_caps_free(content);
+            heap_caps_free(path);
+            fclose(f);
+            return -1;
+        }
+        
+        FILE *out = fopen(full_path, "wb");
+        if (out) {
+            fwrite(content, 1, content_len, out);
+            fclose(out);
+        } else {
+            ESP_LOGE(TAG, "Cannot create file: %s", full_path);
+            heap_caps_free(content);
+            heap_caps_free(path);
+            fclose(f);
+            return -1;
+        }
+        
+        heap_caps_free(content);
+        heap_caps_free(path);
+    }
+    
+    fclose(f);
+    ESP_LOGI(TAG, "Extracted %d files from EPP", file_count);
+    return 0;
+}
+
+static int ends_with(const char *str, const char *suffix)
+{
+    int len_str = strlen(str);
+    int len_suffix = strlen(suffix);
+    if (len_str < len_suffix) return 0;
+    return strcmp(str + len_str - len_suffix, suffix) == 0;
+}
+
 void app_installer_init(void)
 {
+    mkdir(APP_INSTALL_DIR, 0755);
     ESP_LOGI(TAG, "App installer initialized");
 }
 
@@ -119,8 +239,32 @@ install_result_t app_installer_install(const char *src_path)
 {
     ESP_LOGI(TAG, "Installing app from: %s", src_path);
     
+    char app_path[512];
+    if (ends_with(src_path, ".epp")) {
+        char app_name[APP_NAME_MAX];
+        const char *name_start = strrchr(src_path, '/');
+        const char *name_end = strrchr(src_path, '.');
+        if (name_start) name_start++;
+        else name_start = src_path;
+        
+        int name_len = (name_end - name_start);
+        if (name_len > APP_NAME_MAX - 1) name_len = APP_NAME_MAX - 1;
+        strncpy(app_name, name_start, name_len);
+        app_name[name_len] = '\0';
+        
+        snprintf(app_path, sizeof(app_path), "%s/%s", APP_INSTALL_DIR, app_name);
+        mkdir(app_path, 0755);
+        
+        if (epp_extract(src_path, app_path) != 0) {
+            return INSTALL_ERR_INVALID_MANIFEST;
+        }
+    } else {
+        strncpy(app_path, src_path, sizeof(app_path) - 1);
+        app_path[sizeof(app_path) - 1] = '\0';
+    }
+    
     app_info_t app = {0};
-    install_result_t ret = read_manifest(src_path, &app);
+    install_result_t ret = read_manifest(app_path, &app);
     if (ret != INSTALL_OK) {
         return ret;
     }
@@ -131,7 +275,7 @@ install_result_t app_installer_install(const char *src_path)
         return INSTALL_ERR_ALREADY_EXISTS;
     }
     
-    strncpy(app.path, src_path, sizeof(app.path) - 1);
+    strncpy(app.path, app_path, sizeof(app.path) - 1);
     
     if (app.data.dynamic.entry_point[0] == '\0') {
         strcpy(app.data.dynamic.entry_point, "layout.json");
@@ -156,6 +300,10 @@ install_result_t app_installer_uninstall(const char *app_name)
         ESP_LOGE(TAG, "Cannot uninstall native app: %s", app_name);
         return INSTALL_ERR_INVALID_MANIFEST;
     }
+    
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd), "rm -rf %s", app->path);
+    system(cmd);
     
     ESP_LOGI(TAG, "App uninstalled: %s", app_name);
     return INSTALL_OK;

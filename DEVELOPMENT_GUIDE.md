@@ -1,198 +1,1594 @@
-# ESP32-P4 Phone App开发指南
+# ESP32-P4 Phone 开发手册
 
-## 概述
+## 文档版本信息
 
-本指南介绍如何为ESP32-P4 Phone系统开发应用程序。系统支持两种类型的应用：
+| 项目 | 内容 |
+|------|------|
+| 文档版本 | 7.1 |
+| 最后更新 | 2026-07-16 |
+| 适用项目 | ESP32-P4 Phone |
+| 目标读者 | 嵌入式软件工程师、应用开发者、系统维护人员 |
 
-| 类型 | 说明 | 适用场景 |
+---
+
+## 目录
+
+1. [概述](#一概述)
+2. [硬件平台](#二硬件平台)
+3. [系统架构](#三系统架构)
+4. [项目目录结构](#四项目目录结构)
+5. [开发环境配置](#五开发环境配置)
+6. [分区表配置](#六分区表配置)
+7. [UI工具模块](#七ui工具模块)
+8. [通用工具模块](#八通用工具模块)
+9. [应用签名验证](#九应用签名验证)
+10. [固件完整性校验](#十固件完整性校验)
+11. [测试体系](#十一测试体系)
+12. [内置应用说明](#十二内置应用说明)
+13. [系统模块API](#十三系统模块api)
+14. [开发规范](#十四开发规范)
+15. [项目优化分析](#十五项目优化分析)
+16. [问题排查](#十六问题排查)
+17. [动态应用开发](#十七动态应用开发)
+18. [BSP API参考](#十八bsp-api参考)
+19. [服务管理器](#十九服务管理器)
+20. [OTA管理器](#二十ota管理器)
+21. [其他系统模块](#二十一其他系统模块)
+
+---
+
+## 一、概述
+
+### 1.1 项目简介
+
+ESP32-P4 Phone 是一款基于 ESP32-P4 (RISC-V) 芯片的智能手持设备项目，集成了显示、触摸、音频、网络、蓝牙、相机等功能模块，提供完整的应用开发框架和系统服务。
+
+### 1.2 核心特性
+
+| 特性 | 说明 |
+|------|------|
+| 双应用架构 | 支持 Native 原生应用和 Dynamic 动态应用 |
+| 完整 UI 框架 | 基于 LVGL v9 的图形界面系统 |
+| 统一 UI 工具 | `ui_utils` 模块提供标准化 UI 组件创建 |
+| 权限管理 | 细粒度应用权限控制与持久化 |
+| 后台服务 | 支持服务注册、优先级调度、健康检查 |
+| 安全验证 | 应用签名验证和固件完整性校验 |
+| 电源管理 | 支持低功耗模式和电池监控 |
+| 主题系统 | 支持多主题切换和自定义 |
+| PSRAM 支持 | 32MB PSRAM 用于显示缓冲和音频缓冲 |
+
+### 1.3 技术栈
+
+| 层次 | 技术 | 版本 |
+|------|------|------|
+| 主芯片 | ESP32-P4 | RISC-V (双核) |
+| 协处理器 | ESP32-C6 | RISC-V |
+| 通信方式 | ESP-Hosted | SDIO |
+| 框架 | ESP-IDF | v6.0.2 |
+| 图形 | LVGL | v9 |
+| 文件系统 | SPIFFS / SDMMC / FAT | - |
+| 网络 | WiFi 6 | ESP32-C6 |
+| 蓝牙 | Bluetooth 5.4 (NimBLE) | ESP32-C6 |
+| 音频 | ES8311 | I2S |
+
+---
+
+## 二、硬件平台
+
+### 2.1 核心规格
+
+| 项目 | 规格 |
+|------|------|
+| 主芯片 | ESP32-P4 (RISC-V, 双核) |
+| 协处理器 | ESP32-C6 (WiFi/Bluetooth 5.4) |
+| 通信方式 | ESP-Hosted over SDIO |
+| PSRAM | 32MB  |
+| Flash | 16MB |
+| 显示屏 | 4.3" ST7102 MIPI-DSI (480x800) |
+| 触摸屏 | ST7123 电容触摸屏 |
+| 音频 | ES8311 编解码器 |
+| SD卡 | SDMMC接口 |
+| I2C | GPIO8(SCL), GPIO7(SDA) |
+| 电源 | 直接供电（无电池），带RTC电池 |
+
+### 2.2 双芯片架构
+
+```
+┌───────────────────────────────────────────────────────┐
+│                    ESP32-P4 (主芯片)                   │
+│  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐ │
+│  │   LVGL UI    │  │  应用程序    │  │ 系统服务    │ │
+│  │   (PSRAM)    │  │              │  │(OTA/Power)  │ │
+│  └──────────────┘  └──────────────┘  └─────────────┘ │
+│  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐ │
+│  │ 显示驱动     │  │ 音频驱动     │  │ 存储管理    │ │
+│  │ (PPA加速)    │  │ (ES8311)     │  │ (SPIFFS)    │ │
+│  └──────────────┘  └──────────────┘  └─────────────┘ │
+│                     SDIO接口                          │
+└───────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌───────────────────────────────────────────────────────┐
+│                   ESP32-C6 (协处理器)                  │
+│  ┌──────────────┐  ┌──────────────┐                  │
+│  │   WiFi 6     │  │ Bluetooth 5.4│                  │
+│  │              │  │ (NimBLE)     │                  │
+│  └──────────────┘  └──────────────┘                  │
+└───────────────────────────────────────────────────────┘
+```
+
+**硬件资源优化策略**：
+
+| 资源 | 分配策略 | 原因 |
+|------|----------|------|
+| PSRAM | 显示缓冲、音频缓冲、动态应用资源 | 释放内部DRAM给系统 |
+| PPA加速 | LVGL渲染 | 硬件加速提升帧率 |
+| ESP32-C6 | WiFi/Bluetooth | 主芯片专注UI和应用 |
+| Flash | OTA分区(2MB×3) | 支持安全升级 |
+
+### 2.3 外设接口
+
+| 接口 | 引脚 | 功能 |
+|------|------|------|
+| I2C_SCL | GPIO8 | I2C时钟 |
+| I2C_SDA | GPIO7 | I2C数据 |
+| LCD_RST | GPIO6 | 显示屏复位 |
+| LCD_BL | GPIO5 | 显示屏背光 |
+| TOUCH_INT | GPIO4 | 触摸中断 |
+| SD_CLK | GPIO9 | SD卡时钟 |
+| SD_CMD | GPIO10 | SD卡命令 |
+| SD_D0-D3 | GPIO11-14 | SD卡数据 |
+
+---
+
+## 三、系统架构
+
+### 3.1 架构分层
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     UI Layer                               │
+│  Home Screen | Status Bar | App Screens | Control Center   │
+├─────────────────────────────────────────────────────────────┤
+│                   Application Layer                        │
+│  Native Apps | Dynamic Apps | App Manager | Installer      │
+├─────────────────────────────────────────────────────────────┤
+│                   System Services                          │
+│  Permission | Service | Theme | Power | OTA | BT Audio     │
+│  Security | UI Utils | Utils | Crash Handler               │
+├─────────────────────────────────────────────────────────────┤
+│                     BSP Layer                              │
+│  Display (PPA) | Touch | I2C | SD Card | Audio | Camera    │
+├─────────────────────────────────────────────────────────────┤
+│               ESP-IDF v6.0.2 + ESP-Hosted                  │
+│  FreeRTOS | LVGL v9 | PSRAM | NVS | SDIO                  │
+├─────────────────────────────────────────────────────────────┤
+│                  ESP32-C6 协处理器                         │
+│  WiFi 6 | Bluetooth 5.4 (NimBLE)                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 3.2 核心组件
+
+| 组件 | 职责 | 文件路径 |
 |------|------|----------|
-| Native App | 编译时集成到固件中，性能最佳 | 需要高性能、复杂逻辑的核心应用 |
-| Dynamic App | 运行时从SPIFFS加载，无需重新编译 | 快速开发、可热更新的轻量应用 |
+| App Manager | 应用生命周期管理 | `main/system/app_manager.c/h` |
+| App Installer | 动态应用安装 | `main/system/app_installer.c/h` |
+| Permission Manager | 权限管理 | `main/system/permission_manager.c/h` |
+| Service Manager | 后台服务管理 | `main/system/service_manager.c/h` |
+| Theme Manager | 主题管理 | `main/system/theme_manager.c/h` |
+| Power Manager | 电源管理 | `main/system/power_manager.c/h` |
+| OTA Manager | OTA升级管理 | `main/system/ota_manager.c/h` |
+| BT Manager | 蓝牙管理器 | `main/system/bt_manager.c/h` |
+| BT Audio Service | BLE音频服务 | `main/system/bt_audio_service.c/h` |
+| UI Utils | UI组件工具 | `main/system/ui_utils.c/h` |
+| Utils | 通用工具函数 | `main/system/utils.c/h` |
+| App Signature | 应用签名验证 | `main/system/app_signature.c/h` |
+| Firmware Verify | 固件完整性校验 | `main/system/firmware_verify.c/h` |
+| Memory Protection | 内存保护与泄漏检测 | `main/system/memory_protection.c/h` |
+| Memory Pool | PSRAM内存池管理 | `main/system/memory_pool.c/h` |
+| File Cache | PSRAM文件缓存 | `main/system/file_cache.c/h` |
+| Structured Logging | 结构化日志系统 | `main/system/structured_logging.c/h` |
+| Crash Handler | 崩溃处理与恢复 | `main/system/crash_handler.c/h` |
+| Secure Storage | 安全存储管理 | `main/system/secure_storage.c/h` |
+| Security Manager | 安全策略管理 | `main/system/security_manager.c/h` |
 
-## 系统架构
+### 3.3 项目取舍说明
+
+| 已移除模块 | 原因 | 资源节省 |
+|------------|------|----------|
+| hid_service | 非核心功能 | ~5KB代码空间 |
+| gatt_client | 蓝牙扫描按需启用 | ~8KB代码空间 |
+| mesh_manager | Mesh组网非必需 | ~15KB代码空间 |
+| process_isolation | ESP32-P4不支持完整MMU | ~10KB代码空间 |
+| ipc_manager | 双芯片通信已简化 | ~5KB代码空间 |
+| search_manager | 搜索功能非核心 | ~8KB代码空间 |
+
+**取舍原则**：
+1. **核心优先**：保留显示、音频、电源管理等核心功能
+2. **硬件匹配**：移除ESP32-P4不支持的进程隔离
+3. **按需加载**：蓝牙GATT客户端等改为按需初始化
+4. **资源优化**：静态数组改为动态分配，优先使用PSRAM
+
+---
+
+## 四、项目目录结构
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    UI Layer                        │
-│   Home Screen | Status Bar | App Screens           │
-├─────────────────────────────────────────────────────┤
-│                  App Manager                       │
-│   Native Apps | Dynamic Apps | Lifecycle Mgmt      │
-├─────────────────────────────────────────────────────┤
-│                 App Installer                      │
-│   Package Parsing | Installation | Registration    │
-├─────────────────────────────────────────────────────┤
-│               Dynamic App Engine                   │
-│   JSON Layout Parser | Widget Builder | Commands   │
-├─────────────────────────────────────────────────────┤
-│                      BSP                           │
-│   Display | Touch | I2C | SD Card | Audio         │
-└─────────────────────────────────────────────────────┘
+esp32-p4-phone/
+├── main/                           # 主应用代码
+│   ├── apps/                       # Native应用
+│   │   ├── alarm_app.c/h           # 闹钟应用
+│   │   ├── app_store_app.c/h       # 应用商店
+│   │   ├── audio_app.c/h           # 音频应用
+│   │   ├── bt_settings_app.c/h     # 蓝牙设置
+│   │   ├── calculator_app.c/h      # 计算器应用
+│   │   ├── calendar_app.c/h        # 日历应用
+│   │   ├── camera_app.c/h          # 相机应用
+│   │   ├── display_app.c/h         # 显示测试应用
+│   │   ├── encrypt_app.c/h         # 文件加密工具
+│   │   ├── file_browser_app.c/h    # 文件浏览器
+│   │   ├── i2c_app.c/h             # I2C扫描应用
+│   │   ├── info_app.c/h            # 系统信息应用
+│   │   ├── music_player_app.c/h    # 音乐播放器
+│   │   ├── net_settings_app.c/h    # 网络设置
+│   │   ├── photo_album_app.c/h     # 相册应用
+│   │   ├── reader_app.c/h          # 阅读器应用
+│   │   ├── sdcard_app.c/h          # SD卡应用
+│   │   ├── settings_app.c/h        # 设置应用
+│   │   ├── touch_app.c/h           # 触摸测试应用
+│   │   ├── video_player_app.c/h    # 视频播放器
+│   │   └── input_tool.c/h          # 输入工具（UI工具模块）
+│   │   └── sample_app/             # 示例动态应用
+│   │       ├── manifest.json
+│   │       ├── layout.json
+│   │       └── icon.txt
+│   ├── system/                     # 系统模块
+│   │   ├── app_manager.c/h         # 应用管理器
+│   │   ├── app_installer.c/h       # 应用安装器
+│   │   ├── app_signature.c/h       # 应用签名验证
+│   │   ├── bt_manager.c/h          # 蓝牙管理器
+│   │   ├── control_center.c/h      # 控制中心
+│   │   ├── firmware_verify.c/h     # 固件完整性校验
+│   │   ├── gesture_manager.c/h     # 手势管理器
+│   │   ├── home_screen.c/h         # 主屏
+│   │   ├── i18n_manager.c/h        # 国际化管理
+│   │   ├── net_manager.c/h         # 网络管理器
+│   │   ├── notification_manager.c/h # 通知管理
+│   │   ├── ota_manager.c/h         # OTA管理器
+│   │   ├── permission_manager.c/h  # 权限管理器
+│   │   ├── power_manager.c/h       # 电源管理器
+│   │   ├── service_manager.c/h     # 服务管理器
+│   │   ├── settings_manager.c/h    # 设置管理器
+│   │   ├── status_bar.c/h          # 状态栏
+│   │   ├── theme_manager.c/h       # 主题管理器
+│   │   ├── ui_animation.c/h        # UI动画系统
+│   │   ├── ui_utils.c/h            # UI工具模块
+│   │   ├── utils.c/h               # 通用工具模块
+│   │   ├── memory_pool.c/h         # 内存池管理器
+│   │   ├── file_cache.c/h          # 文件缓存管理器
+│   │   ├── memory_protection.c/h   # 内存保护模块
+│   │   ├── structured_logging.c/h  # 结构化日志模块
+│   │   └── ...                     # 其他系统模块
+│   ├── CMakeLists.txt              # 主组件构建配置
+│   ├── idf_component.yml           # 组件依赖声明
+│   └── main.c                      # 系统入口
+├── components/                     # 自定义组件
+│   ├── bsp/                        # BSP板级支持包
+│   └── bsp_st7102/                 # ST7102显示驱动
+├── managed_components/             # ESP-IDF组件管理器下载的组件
+├── tests/                          # 测试目录
+│   ├── unit_tests/                 # 单元测试
+│   └── integration_tests/          # 集成测试
+├── partitions.csv                  # 分区表配置
+├── sdkconfig                       # ESP-IDF配置
+├── build.ps1                       # PowerShell构建脚本
+└── CMakeLists.txt                  # 项目构建配置
 ```
 
-## 开发环境要求
+---
 
-- ESP-IDF v6.0.2
-- Python 3.12+
-- CMake 3.30+
-- Ninja 1.12+
-- RISC-V Toolchain (esp-15.2.0)
+## 五、开发环境配置
 
-## 一、Native App开发
+### 5.1 环境要求
 
-### 1.1 创建新的Native App
+| 工具 | 版本要求 | 说明 |
+|------|----------|------|
+| ESP-IDF | v6.0.2 | 官方开发框架 |
+| Python | 3.8+ | 构建工具依赖 |
+| CMake | 3.16+ | 构建系统 |
+| Ninja | 1.10+ | 构建工具 |
+| Git | 2.0+ | 版本控制 |
 
-创建以下文件结构：
+### 5.2 环境变量设置（Windows）
 
+```powershell
+set IDF_PATH=D:\esp\v6.0.2
+set PATH=%IDF_PATH%\tools;%PATH%
 ```
-main/apps/
-├── my_app.c
-└── my_app.h
+
+### 5.3 快速构建命令
+
+| 命令 | 说明 |
+|------|------|
+| `idf.py clean` | 清理构建 |
+| `idf.py build` | 构建项目 |
+| `idf.py -p COM3 flash` | 烧录到设备 |
+| `idf.py -p COM3 build flash monitor` | 构建、烧录并启动监视器 |
+| `idf.py size` | 查看固件大小 |
+
+### 5.4 PowerShell 构建脚本
+
+项目提供 `build.ps1` 脚本简化操作：
+
+```powershell
+.\build.ps1          # 构建项目
+.\build.ps1 clean    # 清理
+.\build.ps1 flash    # 烧录
+.\build.ps1 monitor  # 启动监视器
 ```
 
-### 1.2 头文件模板 (my_app.h)
+---
+
+## 六、分区表配置
+
+分区表定义在 `partitions.csv` 文件中，支持 OTA 升级：
+
+```csv
+# Name,   Type, SubType, Offset,  Size, Flags
+nvs,      data, nvs,     0x9000,  0x20000,
+phy_init, data, phy,     0x29000, 0x1000,
+factory,  app,  factory, 0x30000, 2M,
+ota_0,    app,  ota_0,   0x230000,2M,
+ota_1,    app,  ota_1,   0x430000,2M,
+assets,   data, fat,     0x630000, 6M,
+storage,  data, fat,     0xC30000, 0x3D0000,
+```
+
+| 分区 | 大小 | 偏移地址 | 用途 |
+|------|------|----------|------|
+| nvs | 128KB | 0x9000 | NVS存储 |
+| phy_init | 4KB | 0x29000 | PHY初始化数据 |
+| factory | 2MB | 0x30000 | 工厂固件分区 |
+| ota_0 | 2MB | 0x230000 | OTA升级分区0 |
+| ota_1 | 2MB | 0x430000 | OTA升级分区1 |
+| assets | 6MB | 0x630000 | 资源文件分区(FAT) |
+| storage | ~3.8MB | 0xC30000 | 用户存储分区(FAT) |
+
+**Flash 空间利用率**：
+- 总容量：16MB (0x000000–0x1000000)
+- 应用分区：6MB (factory + ota_0 + ota_1)
+- 数据分区：~9.8MB (nvs + phy_init + assets + storage)
+- 空闲：~0.2MB
+
+**OTA 升级说明**：
+- 支持 A/B 分区升级模式
+- factory 分区作为降级回退分区
+
+**关键配置**（`sdkconfig`）：
+
+| 配置项 | 值 | 说明 |
+|--------|-----|------|
+| CONFIG_COMPILER_OPTIMIZATION_SIZE | y | SIZE编译优化 |
+| CONFIG_SPIRAM | y | 启用PSRAM |
+| CONFIG_LV_COLOR_DEPTH_16 | y | 16位颜色深度 |
+| CONFIG_PM_ENABLE | y | 启用电源管理 |
+
+---
+
+## 七、UI工具模块
+
+### 7.1 概述
+
+`ui_utils` 模块提供标准化的 UI 组件创建函数，统一应用的视觉风格，减少代码重复。支持屏幕、容器、按钮、标签、滑块、复选框、进度条、输入框等组件。
+
+### 7.2 核心数据结构
 
 ```c
-#pragma once
+typedef struct {
+    lv_color_t bg_color;
+    lv_color_t border_color;
+    uint8_t border_width;
+    uint8_t radius;
+    uint8_t padding;
+} ui_container_style_t;
 
-#include "lvgl.h"
+typedef struct {
+    lv_color_t normal_color;
+    lv_color_t pressed_color;
+    lv_color_t active_color;
+    lv_color_t text_color;
+    const lv_font_t *font;
+    uint8_t radius;
+    uint16_t width;
+    uint16_t height;
+} ui_button_style_t;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+typedef struct {
+    lv_color_t bg_color;
+    lv_color_t accent_color;
+    lv_color_t text_color;
+    const lv_font_t *font;
+    uint16_t width;
+    uint16_t height;
+    int32_t min;
+    int32_t max;
+    int32_t value;
+} ui_slider_style_t;
 
-lv_obj_t *my_app_create(void);
+typedef struct {
+    lv_color_t bg_color;
+    lv_color_t accent_color;
+    lv_color_t text_color;
+    const lv_font_t *font;
+    uint16_t width;
+    uint16_t height;
+    bool checked;
+} ui_checkbox_style_t;
 
-#ifdef __cplusplus
+typedef struct {
+    lv_color_t bg_color;
+    lv_color_t accent_color;
+    uint16_t width;
+    uint16_t height;
+    uint8_t radius;
+    int32_t min;
+    int32_t max;
+    int32_t value;
+} ui_progress_style_t;
+
+typedef struct {
+    lv_color_t bg_color;
+    lv_color_t border_color;
+    lv_color_t text_color;
+    const lv_font_t *font;
+    uint16_t width;
+    uint16_t height;
+    uint8_t radius;
+    const char *placeholder;
+} ui_input_style_t;
+```
+
+### 7.3 预定义颜色常量
+
+| 常量 | 值 | 用途 |
+|------|-----|------|
+| UI_UTILS_COLOR_PRIMARY_BG | 0x1a1a2e | 主背景色 |
+| UI_UTILS_COLOR_SECONDARY_BG | 0x252540 | 次背景色 |
+| UI_UTILS_COLOR_CARD_BG | 0x252540 | 卡片背景 |
+| UI_UTILS_COLOR_BUTTON_BG | 0x3a3a5a | 按钮背景 |
+| UI_UTILS_COLOR_BUTTON_PRESSED | 0x4a4a6a | 按钮按下色 |
+| UI_UTILS_COLOR_BUTTON_ACTIVE | 0x4a4a6a | 按钮激活色 |
+| UI_UTILS_COLOR_TEXT_PRIMARY | 0xFFFFFF | 主文本色 |
+| UI_UTILS_COLOR_TEXT_SECONDARY | 0xAAAAAA | 次文本色 |
+| UI_UTILS_COLOR_BORDER | 0x3a3a5a | 边框颜色 |
+| UI_UTILS_COLOR_ACCENT | 0x6c5ce7 | 强调色 |
+
+### 7.4 API 函数列表
+
+#### 基础组件
+
+| 函数 | 说明 |
+|------|------|
+| `ui_utils_create_screen()` | 创建屏幕 |
+| `ui_utils_create_container()` | 创建容器 |
+| `ui_utils_create_container_default()` | 创建默认容器 |
+| `ui_utils_create_button()` | 创建按钮 |
+| `ui_utils_create_button_default()` | 创建默认按钮 |
+| `ui_utils_create_back_button()` | 创建返回按钮 |
+| `ui_utils_create_title()` | 创建标题 |
+| `ui_utils_create_label()` | 创建标签 |
+| `ui_utils_create_label_default()` | 创建默认标签 |
+| `ui_utils_set_button_text()` | 设置按钮文本 |
+| `ui_utils_set_button_style()` | 设置按钮样式 |
+| `ui_utils_center_label()` | 居中标签 |
+
+#### 滑块组件
+
+| 函数 | 说明 |
+|------|------|
+| `ui_utils_create_slider()` | 创建滑块 |
+| `ui_utils_create_slider_default()` | 创建默认滑块 |
+| `ui_utils_get_slider_value()` | 获取滑块值 |
+| `ui_utils_set_slider_value()` | 设置滑块值 |
+
+#### 复选框组件
+
+| 函数 | 说明 |
+|------|------|
+| `ui_utils_create_checkbox()` | 创建复选框 |
+| `ui_utils_create_checkbox_default()` | 创建默认复选框 |
+| `ui_utils_get_checkbox_value()` | 获取复选框状态 |
+| `ui_utils_set_checkbox_value()` | 设置复选框状态 |
+
+#### 进度条组件
+
+| 函数 | 说明 |
+|------|------|
+| `ui_utils_create_progress()` | 创建进度条 |
+| `ui_utils_create_progress_default()` | 创建默认进度条 |
+| `ui_utils_get_progress_value()` | 获取进度值 |
+| `ui_utils_set_progress_value()` | 设置进度值 |
+
+#### 输入框组件
+
+| 函数 | 说明 |
+|------|------|
+| `ui_utils_create_input()` | 创建输入框 |
+| `ui_utils_create_input_default()` | 创建默认输入框 |
+| `ui_utils_set_input_text()` | 设置输入框文本 |
+| `ui_utils_get_input_text()` | 获取输入框文本 |
+
+### 7.5 使用示例
+
+```c
+#include "ui_utils.h"
+
+lv_obj_t *screen = ui_utils_create_screen();
+ui_utils_create_title(screen, "Settings");
+
+ui_button_style_t btn_style = {
+    .normal_color = lv_color_hex(0x4a8a6a),
+    .pressed_color = lv_color_hex(0x5a9a7a),
+    .text_color = lv_color_hex(0xFFFFFF),
+    .font = UI_UTILS_FONT_DEFAULT,
+    .radius = 8,
+    .width = 120,
+    .height = 40
+};
+lv_obj_t *btn = ui_utils_create_button(screen, "OK", callback, NULL, &btn_style);
+
+lv_obj_t *slider = ui_utils_create_slider_default(screen, on_slider_change, NULL);
+ui_utils_set_slider_value(slider, 75);
+
+lv_obj_t *checkbox = ui_utils_create_checkbox_default(screen, "Enable Notifications", on_checkbox_change, NULL);
+ui_utils_set_checkbox_value(checkbox, true);
+
+lv_obj_t *progress = ui_utils_create_progress_default(screen);
+ui_utils_set_progress_value(progress, 50);
+
+lv_obj_t *input = ui_utils_create_input_default(screen, on_input_change, NULL);
+ui_utils_set_input_text(input, "Enter text...");
+```
+
+---
+
+## 八、通用工具模块
+
+### 8.1 概述
+
+`utils` 模块提供通用的工具函数，包括哈希表、字符串操作和排序算法。
+
+### 8.2 数据结构
+
+```c
+typedef struct hash_node {
+    const char *key;
+    void *value;
+    struct hash_node *next;
+} hash_node_t;
+
+typedef struct {
+    hash_node_t *buckets[UTILS_HASH_TABLE_SIZE];
+    int count;
+} hash_table_t;
+```
+
+### 8.3 API 函数列表
+
+| 函数 | 说明 |
+|------|------|
+| `utils_hash_string()` | 字符串哈希 |
+| `utils_hash_table_init()` | 初始化哈希表 |
+| `utils_hash_table_insert()` | 插入键值对 |
+| `utils_hash_table_lookup()` | 查找值 |
+| `utils_hash_table_remove()` | 删除键值对 |
+| `utils_hash_table_clear()` | 清空哈希表 |
+| `utils_hash_table_count()` | 获取元素数量 |
+| `utils_strcasecmp()` | 大小写不敏感字符串比较 |
+| `utils_strcasestr()` | 大小写不敏感字符串查找 |
+| `utils_strdup()` | 字符串复制 |
+| `utils_sort_string_array()` | 字符串数组排序 |
+| `utils_binary_search_string()` | 二分查找字符串 |
+
+### 8.4 使用示例
+
+```c
+#include "utils.h"
+
+hash_table_t table;
+utils_hash_table_init(&table);
+utils_hash_table_insert(&table, "key1", value1);
+void *val = utils_hash_table_lookup(&table, "key1");
+```
+
+---
+
+## 九、应用签名验证
+
+### 9.1 概述
+
+`app_signature` 模块提供应用签名生成和验证功能，确保应用包的完整性和真实性。
+
+### 9.2 数据结构
+
+```c
+typedef struct {
+    uint8_t sha256[APP_SIGNATURE_SHA256_SIZE];
+    uint8_t signature[APP_SIGNATURE_RSA_SIZE];
+    uint32_t version;
+    char author[64];
+    uint32_t timestamp;
+} app_signature_t;
+```
+
+### 9.3 签名状态
+
+| 状态 | 说明 |
+|------|------|
+| SIGNATURE_STATUS_OK | 验证通过 |
+| SIGNATURE_STATUS_INVALID | 签名无效 |
+| SIGNATURE_STATUS_NOT_FOUND | 签名未找到 |
+| SIGNATURE_STATUS_VERIFY_FAILED | 验证失败 |
+| SIGNATURE_STATUS_KEY_MISMATCH | 密钥不匹配 |
+
+### 9.4 API 函数列表
+
+| 函数 | 说明 |
+|------|------|
+| `app_signature_init()` | 初始化模块 |
+| `app_signature_deinit()` | 反初始化模块 |
+| `app_signature_verify()` | 验证应用签名 |
+| `app_signature_generate()` | 生成应用签名 |
+| `app_signature_load()` | 加载签名 |
+| `app_signature_save()` | 保存签名 |
+| `app_signature_status_to_string()` | 状态转字符串 |
+
+### 9.5 使用示例
+
+```c
+#include "app_signature.h"
+
+app_signature_status_t status = app_signature_verify("/sdcard/app.epp", public_key, key_size);
+if (status == SIGNATURE_STATUS_OK) {
+    ESP_LOGI(TAG, "Signature verified successfully");
 }
-#endif
 ```
 
-### 1.3 源文件模板 (my_app.c)
+---
+
+## 十、固件完整性校验
+
+### 10.1 概述
+
+`firmware_verify` 模块提供固件完整性校验功能，通过 SHA-256 哈希验证确保固件未被篡改。
+
+### 10.2 数据结构
 
 ```c
-#include "my_app.h"
-#include "status_bar.h"
-#include "app_manager.h"
+typedef struct {
+    char magic[FIRMWARE_VERIFY_MAGIC_SIZE];  // "FWVER"
+    uint32_t version;
+    uint8_t sha256[FIRMWARE_VERIFY_SHA256_SIZE];
+    uint32_t firmware_size;
+    uint32_t timestamp;
+    uint8_t reserved[128];
+} firmware_verify_header_t;
+```
+
+### 10.3 验证状态
+
+| 状态 | 说明 |
+|------|------|
+| FIRMWARE_STATUS_OK | 验证通过 |
+| FIRMWARE_STATUS_INVALID_HEADER | 头部无效 |
+| FIRMWARE_STATUS_HASH_MISMATCH | 哈希不匹配 |
+| FIRMWARE_STATUS_TOO_LARGE | 固件过大 |
+| FIRMWARE_STATUS_CORRUPTED | 固件损坏 |
+
+### 10.4 API 函数列表
+
+| 函数 | 说明 |
+|------|------|
+| `firmware_verify_init()` | 初始化模块 |
+| `firmware_verify_deinit()` | 反初始化模块 |
+| `firmware_verify_check()` | 校验固件 |
+| `firmware_verify_generate_header()` | 生成校验头 |
+| `firmware_verify_is_header_valid()` | 验证头部 |
+| `firmware_verify_status_to_string()` | 状态转字符串 |
+
+### 10.5 使用示例
+
+```c
+#include "firmware_verify.h"
+
+firmware_verify_status_t status = firmware_verify_check(firmware_data, firmware_size);
+if (status == FIRMWARE_STATUS_OK) {
+    ESP_LOGI(TAG, "Firmware integrity verified");
+}
+```
+
+---
+
+## 十一、测试体系
+
+### 11.1 测试目录结构
+
+```
+tests/
+├── unit_tests/                 # 单元测试
+│   ├── CMakeLists.txt
+│   ├── test_ui_utils.c         # UI工具模块测试
+│   ├── test_utils.c            # 通用工具模块测试
+│   └── ...
+└── integration_tests/          # 集成测试
+    ├── CMakeLists.txt
+    ├── test_app_signature.c    # 应用签名验证测试
+    ├── test_firmware_verify.c  # 固件完整性校验测试
+    └── ...
+```
+
+### 11.2 运行测试
+
+```powershell
+idf.py test                    # 运行所有测试
+idf.py test --test-unit        # 仅运行单元测试
+idf.py test --test-integration # 仅运行集成测试
+```
+
+### 11.3 测试规范
+
+- 单元测试：测试单个函数或模块的功能
+- 集成测试：测试多个模块协作的功能
+- 使用 Unity 测试框架
+- 每个测试文件对应一个模块
+- 测试覆盖率目标：80% 以上
+
+---
+
+## 十二、内置应用说明
+
+### 12.1 应用列表
+
+| 应用名称 | 文件路径 | 功能描述 |
+|----------|----------|----------|
+| 闹钟 | `apps/alarm_app.c/h` | 闹钟管理、定时提醒 |
+| 应用商店 | `apps/app_store_app.c/h` | 应用下载安装 |
+| 音频 | `apps/audio_app.c/h` | 音频测试 |
+| 蓝牙设置 | `apps/bt_settings_app.c/h` | 蓝牙设备管理 |
+| 计算器 | `apps/calculator_app.c/h` | 四则运算、科学计算 |
+| 日历 | `apps/calendar_app.c/h` | 日历显示、日期选择 |
+| 相机 | `apps/camera_app.c/h` | 拍照、视频录制 |
+| 显示测试 | `apps/display_app.c/h` | 显示功能测试 |
+| 文件加密 | `apps/encrypt_app.c/h` | 文件加密工具 |
+| 文件浏览器 | `apps/file_browser_app.c/h` | 文件浏览、管理 |
+| I2C扫描 | `apps/i2c_app.c/h` | I2C设备扫描 |
+| 系统信息 | `apps/info_app.c/h` | 系统信息显示 |
+| 音乐播放器 | `apps/music_player_app.c/h` | MP3播放、播放列表 |
+| 网络设置 | `apps/net_settings_app.c/h` | WiFi配置、网络管理 |
+| 相册 | `apps/photo_album_app.c/h` | 照片浏览、缩放 |
+| 阅读器 | `apps/reader_app.c/h` | TXT/EPUB阅读、书签 |
+| SD卡 | `apps/sdcard_app.c/h` | SD卡管理 |
+| 设置 | `apps/settings_app.c/h` | 系统设置 |
+| 触摸测试 | `apps/touch_app.c/h` | 触摸功能测试 |
+| 视频播放器 | `apps/video_player_app.c/h` | 视频播放、解码 |
+
+**工具模块**（位于apps目录但非独立应用）：
+
+| 模块名称 | 文件路径 | 功能描述 |
+|----------|----------|----------|
+| 输入工具 | `apps/input_tool.c/h` | 虚拟键盘和输入法工具（被其他应用调用） |
+
+### 12.2 应用开发规范
+
+1. 每个应用包含 `.c` 和 `.h` 文件
+2. 提供 `xxx_app_init()` 和 `xxx_app_deinit()` 函数
+3. 使用 `ui_utils` 模块创建 UI 组件
+4. 在 `app_manager.c` 中注册应用
+5. 更新 `CMakeLists.txt` 添加源文件
+
+### 12.3 内置应用UI设计规范
+
+#### 设计原则
+
+| 原则 | 说明 |
+|------|------|
+| 现代卡片设计 | 使用圆角卡片（radius 10-16），背景色 #252540 |
+| 阴影效果 | 使用阴影增强层次感（shadow_width 4-8） |
+| 统一配色 | 主背景 #1a1a2e，卡片 #252540，强调色 #87CEEB/#4CAF50 |
+| 圆角按钮 | 按钮使用圆角设计（radius 8-12） |
+| 字体规范 | 使用 Montserrat 字体，标题 14号，正文 12号，辅助 10号 |
+| 动画过渡 | 使用 `ui_animation_slide()` 实现页面切换动画 |
+
+#### 各应用UI设计特点
+
+**相机应用** (`camera_app.c`)
+- 现代相机框架，带聚焦角标
+- 顶部控制栏：闪光灯、HDR切换
+- 底部控制栏：快门按钮、相册入口
+- 状态栏集成：时间、电量、存储状态
+
+**设置应用** (`settings_app.c`)
+- 分组卡片设计，按功能分类
+- 图标化设置项，直观展示
+- 现代滑块控件，带颜色指示器
+- 卡片圆角 16，阴影宽度 4
+
+**计算器应用** (`calculator_app.c`)
+- 现代渐变按钮设计
+- 圆角显示框，半透明背景
+- 功能按钮分区配色
+- 阴影效果增强立体感
+
+**音乐播放器** (`music_player_app.c`)
+- 专辑封面显示区（200x200）
+- 精美控制栏（圆角 35）
+- 进度条带时间显示
+- 播放/暂停、上一首/下一首控制
+
+**文件浏览器** (`file_browser_app.c`)
+- 文件卡片设计，圆角 10
+- 文件类型图标识别（文件夹、应用包、文档等）
+- 路径导航栏，支持返回上级
+- 搜索和排序功能
+- 文件详情弹窗（重命名、删除）
+
+**相册应用** (`photo_album_app.c`)
+- 3列网格布局，卡片圆角 10
+- 照片缩略图显示
+- 全屏预览模式，支持缩放（双击）
+- 手势导航（左右滑动切换，下滑关闭）
+- 底部信息栏显示文件名和索引
+
+**日历应用** (`calendar_app.c`)
+- 现代日历卡片，圆角 16
+- 今日高亮（绿色背景 + 发光阴影）
+- 星期标题栏（天蓝色）
+- 月份导航（左右箭头）
+- 顶部显示当前日期信息
+
+**闹钟应用** (`alarm_app.c`)
+- 现代卡片设计，圆角 12，阴影宽度 6
+- 闹钟列表带开关按钮和删除按钮
+- 底部悬浮添加按钮（绿色，圆角 25）
+- 页面切换动画（slide right）
+- 闹钟时间和标签清晰展示
+
+**I2C扫描应用** (`i2c_app.c`)
+- 现代结果卡片，圆角 16，阴影宽度 8
+- 扫描按钮（蓝色，圆角 12，阴影宽度 6）
+- 设备列表分组展示（已找到/未找到）
+- 页面切换动画（slide right）
+- 扫描结果带地址和状态指示
+
+**系统信息应用** (`info_app.c`)
+- 分组卡片设计，圆角 12，阴影宽度 6
+- 硬件信息卡片（芯片型号、CPU频率、Flash大小）
+- 内存信息卡片（已用/可用内存）
+- 软件信息卡片（固件版本、编译时间）
+- 显示信息卡片（分辨率、屏幕类型）
+- 页面切换动画（slide right）
+
+**SD卡应用** (`sdcard_app.c`)
+- 文件列表卡片设计，圆角 10，阴影宽度 4
+- 文件类型图标识别（📁文件夹、📄文件）
+- 刷新按钮（蓝色，圆角 10）
+- 返回按钮（紫色，圆角 10）
+- 文件大小和名称清晰展示
+- 页面切换动画（slide right）
+
+**音频应用** (`audio_app.c`)
+- 现代音频控制卡片，圆角 16，阴影宽度 8
+- 播放/暂停按钮（绿色，圆角 35）
+- 音量滑块带颜色渐变
+- 波形可视化展示区
+- 页面切换动画（slide right）
+- 控制按钮带阴影效果
+
+**显示测试应用** (`display_app.c`)
+- 颜色展示卡片，圆角 16，阴影宽度 8
+- 红/绿/蓝颜色块带圆角 10
+- 颜色混合展示区
+- RGB滑块控制（带圆角轨道）
+- 页面切换动画（slide right）
+- 卡片内边距统一 15
+
+**触摸测试应用** (`touch_app.c`)
+- 触摸信息卡片，圆角 12，阴影宽度 6
+- 触摸坐标显示（绿色标签）
+- 手势类型显示（黄色标签）
+- 触摸计数显示（蓝色标签）
+- 触摸指示器（阴影宽度 10，圆角 20）
+- 页面切换动画（slide right）
+
+**文件加密应用** (`encrypt_app.c`)
+- 文件列表卡片，圆角 16，阴影宽度 8
+- 加密按钮（绿色，圆角 12，阴影宽度 6）
+- 解密按钮（橙色，圆角 12，阴影宽度 6）
+- 返回上级按钮（紫色，圆角 10，阴影宽度 4）
+- 文件图标识别（📁文件夹、📄文件）
+- 密码输入框（圆角 10）
+- 页面切换动画（slide right）
+
+### 12.4 应用生命周期管理与可靠性优化
+
+#### 生命周期管理规范
+
+所有 Native 应用必须实现完整的生命周期管理，确保资源正确释放：
+
+| 生命周期阶段 | 回调函数 | 职责 |
+|--------------|----------|------|
+| 创建 | `xxx_app_create()` | 创建UI界面，初始化资源 |
+| 退出 | `xxx_app_on_exit()` | 释放资源、清理状态、注销回调 |
+
+#### 注册方式
+
+```c
+app.data.native.create_screen = alarm_app_create;
+app.data.native.on_exit = alarm_app_on_exit;  // 必须注册
+```
+
+#### 资源清理清单
+
+每个应用的 `on_exit` 函数必须完成以下清理工作：
+
+| 资源类型 | 清理操作 | 示例 |
+|----------|----------|------|
+| FreeRTOS任务 | `vTaskDelete(task_handle)` | alarm_app |
+| 音频设备 | `esp_codec_dev_close(speaker)` | audio_app |
+| SD卡挂载 | `bsp_sdcard_unmount()` | sdcard_app |
+| 手势回调 | `gesture_manager_unregister_callback()` | touch_app |
+| 动态内存 | `free()` / `heap_caps_free()` | encrypt_app |
+| 输入工具 | `input_tool_destroy()` | encrypt_app |
+| UI状态指针 | 置空指针 | 所有应用 |
+
+#### 各应用可靠性优化措施
+
+**闹钟应用** (`alarm_app.c`)
+- 退出时删除闹钟检查任务
+- 清空全局UI指针（scr, alarm_list, status_label）
+
+**I2C扫描应用** (`i2c_app.c`)
+- 清空全局UI指针（result_text, scan_btn）
+
+**系统信息应用** (`info_app.c`)
+- 记录退出日志
+
+**SD卡应用** (`sdcard_app.c`)
+- 退出时自动卸载SD卡
+- 清空全局UI指针
+
+**音频应用** (`audio_app.c`)
+- 退出时关闭音频编解码器设备
+- 清空全局UI指针和设备句柄
+
+**显示测试应用** (`display_app.c`)
+- 清空全局UI指针（color_rect, color_label）
+
+**触摸测试应用** (`touch_app.c`)
+- 退出时注销手势回调
+- 重置触摸计数
+- 清空全局UI指针
+
+**文件加密应用** (`encrypt_app.c`)
+- 退出时销毁输入工具
+- 重置文件列表状态
+- 清空全局UI指针
+
+#### 内存管理最佳实践
+
+1. **避免悬空指针**：所有全局UI指针在退出时必须置空
+2. **配对释放**：动态分配的内存必须在退出时释放
+3. **硬件资源释放**：打开的设备句柄必须关闭（音频、SD卡等）
+4. **回调注销**：注册的回调函数必须在退出时注销
+5. **任务清理**：创建的FreeRTOS任务必须删除
+6. **日志记录**：退出时记录日志便于问题追踪
+
+---
+
+## 十三、系统模块API
+
+### 13.1 应用管理器
+
+```c
+#include "system/app_manager.h"
+
+esp_err_t app_manager_init(void);
+esp_err_t app_manager_register(app_info_t *app);
+esp_err_t app_manager_launch(const char *name);
+esp_err_t app_manager_close(const char *name);
+app_state_t app_manager_get_state(const char *name);
+
+void app_manager_open_app(const char *name);
+void app_manager_go_home(void);
+void app_manager_go_back(void);
+
+int app_manager_get_app_count(void);
+const app_info_t *app_manager_get_app(int index);
+const app_info_t *app_manager_find_app(const char *name);
+```
+
+**内存管理说明**：
+- 应用切换时自动管理 screen 对象生命周期
+- 返回主页时自动销毁未保存的 screen
+- 使用 `task_manager_add_task()` 保存应用状态以便恢复
+
+### 13.2 网络管理器
+
+```c
+#include "system/net_manager.h"
+
+esp_err_t net_manager_init(void);
+esp_err_t net_manager_connect_wifi(const char *ssid, const char *password);
+esp_err_t net_manager_disconnect_wifi(void);
+bool net_manager_is_wifi_connected(void);
+esp_err_t net_manager_get_ip_address(char *ip, size_t len);
+```
+
+### 13.3 蓝牙管理器
+
+```c
+#include "system/bt_manager.h"
+
+esp_err_t bt_manager_init(void);
+esp_err_t bt_manager_enable(void);
+esp_err_t bt_manager_disable(void);
+bool bt_manager_is_enabled(void);
+esp_err_t bt_manager_scan(bool start);
+esp_err_t bt_manager_connect(const char *addr);
+```
+
+### 13.4 蓝牙音频服务
+
+```c
+#include "system/bt_audio_service.h"
+
+esp_err_t bt_audio_service_init(void);
+esp_err_t bt_audio_service_deinit(void);
+
+void bt_audio_service_start_stream(void);
+void bt_audio_service_stop_stream(void);
+bool bt_audio_service_is_streaming(void);
+
+void bt_audio_service_send_data(const uint8_t *data, size_t len);
+
+void bt_audio_service_set_config(audio_config_t *config);
+void bt_audio_service_get_config(audio_config_t *config);
+
+void bt_audio_service_register_callback(bt_audio_status_cb cb, void *arg);
+void bt_audio_service_register_data_callback(bt_audio_data_cb cb, void *arg);
+
+void bt_audio_service_on_gap_event(struct ble_gap_event *event);
+```
+
+**缓冲区配置**：
+
+| 配置项 | 值 | 说明 |
+|--------|-----|------|
+| MAX_AUDIO_PACKET_SIZE | 120字节 | 单包最大数据量 |
+| MAX_BUFFER_SIZE | 4096字节 | PSRAM缓冲区大小 |
+| AUDIO_QUEUE_SIZE | 64 | 音频队列深度 |
+
+**事件类型**：
+
+| 事件 | 说明 |
+|------|------|
+| BT_AUDIO_EVENT_CONNECTED | 蓝牙连接建立 |
+| BT_AUDIO_EVENT_DISCONNECTED | 蓝牙连接断开 |
+| BT_AUDIO_EVENT_STREAM_START | 音频流开始 |
+| BT_AUDIO_EVENT_STREAM_STOP | 音频流停止 |
+| BT_AUDIO_EVENT_CONFIG_CHANGED | 配置变更 |
+
+**音频配置结构**：
+
+```c
+typedef struct {
+    uint32_t sample_rate;      // 采样率
+    uint16_t num_channels;     // 通道数
+    uint16_t bits_per_sample;  // 位深度
+    uint32_t byte_rate;        // 字节率
+} audio_config_t;
+```
+
+### 13.5 权限管理器
+
+```c
+#include "system/permission_manager.h"
+
+esp_err_t permission_manager_init(void);
+bool permission_manager_check(const char *app_name, permission_t permission);
+esp_err_t permission_manager_request(const char *app_name, permission_t permission);
+```
+
+### 13.6 设置管理器
+
+```c
+#include "system/settings_manager.h"
+
+esp_err_t settings_manager_init(void);
+esp_err_t settings_manager_set_string(const char *key, const char *value);
+esp_err_t settings_manager_get_string(const char *key, char *value, size_t len);
+esp_err_t settings_manager_save(void);
+```
+
+### 13.7 UI动画模块
+
+```c
+#include "system/ui_animation.h"
+
+esp_err_t ui_animation_init(void);
+
+void ui_animation_fade(lv_obj_t *obj, bool fade_in, uint32_t duration);
+void ui_animation_slide(lv_obj_t *obj, lv_dir_t dir, uint32_t duration);
+void ui_animation_scale(lv_obj_t *obj, bool scale_in, uint32_t duration);
+void ui_animation_bounce(lv_obj_t *obj, bool bounce_in, uint32_t duration);
+void ui_animation_rotate(lv_obj_t *obj, bool rotate_in, uint32_t duration);
+
+void ui_animation_start(lv_obj_t *obj, ui_anim_type_t type, uint32_t duration, 
+                        ui_anim_ease_t ease, ui_anim_done_cb_t cb);
+void ui_animation_stop(lv_obj_t *obj);
+
+void ui_animation_set_default_duration(uint32_t duration);
+void ui_animation_set_default_ease(ui_anim_ease_t ease);
+```
+
+**动画类型**：
+
+| 类型 | 说明 |
+|------|------|
+| UI_ANIM_FADE_IN | 淡入 |
+| UI_ANIM_FADE_OUT | 淡出 |
+| UI_ANIM_SLIDE_LEFT | 左滑入 |
+| UI_ANIM_SLIDE_RIGHT | 右滑入 |
+| UI_ANIM_SLIDE_UP | 上滑入 |
+| UI_ANIM_SLIDE_DOWN | 下滑入 |
+| UI_ANIM_SCALE_IN | 放大进入 |
+| UI_ANIM_SCALE_OUT | 缩小退出 |
+| UI_ANIM_BOUNCE_IN | 弹跳进入 |
+| UI_ANIM_ROTATE_IN | 旋转进入 |
+
+**缓动函数**：
+
+| 类型 | 说明 |
+|------|------|
+| UI_ANIM_EASE_LINEAR | 线性 |
+| UI_ANIM_EASE_IN | 缓入 |
+| UI_ANIM_EASE_OUT | 缓出 |
+| UI_ANIM_EASE_IN_OUT | 缓入缓出 |
+
+### 13.8 UI反馈模块
+
+```c
+#include "system/ui_feedback.h"
+
+esp_err_t ui_feedback_init(void);
+
+void ui_feedback_show_toast(const char *title, const char *message, ui_feedback_type_t type, uint32_t duration_ms);
+void ui_feedback_show_loading(lv_obj_t *parent, const char *text);
+void ui_feedback_hide_loading(void);
+void ui_feedback_show_error(const char *title, const char *message);
+void ui_feedback_button_press(lv_obj_t *btn);
+```
+
+**反馈类型**：
+
+| 类型 | 说明 |
+|------|------|
+| UI_FEEDBACK_TYPE_INFO | 信息提示 |
+| UI_FEEDBACK_TYPE_SUCCESS | 成功提示 |
+| UI_FEEDBACK_TYPE_WARNING | 警告提示 |
+| UI_FEEDBACK_TYPE_ERROR | 错误提示 |
+
+---
+
+## 十四、开发规范
+
+### 14.1 命名规范
+
+| 类型 | 规范 | 示例 |
+|------|------|------|
+| 宏定义 | 全大写，下划线分隔 | `MAX_SIZE` |
+| 枚举值 | 全大写，下划线分隔 | `APP_STATE_RUNNING` |
+| 结构体 | 驼峰命名，后缀 `_t` | `app_info_t` |
+| 函数 | 小写，下划线分隔 | `app_manager_init()` |
+| 变量 | 小写，下划线分隔 | `service_count` |
+| 常量 | 全大写，下划线分隔 | `TAG` |
+| 静态变量/函数 | 前缀 `s_` | `s_service_list` |
+
+### 14.2 文件头注释
+
+```c
+/**
+ * @file app_manager.c
+ * @brief 应用管理器模块
+ * @details 负责应用的注册、启动、停止和生命周期管理
+ * @author Developer
+ * @date 2026-07-17
+ */
+```
+
+### 14.3 函数注释
+
+```c
+/**
+ * @brief 初始化应用管理器
+ * 
+ * @return esp_err_t ESP_OK成功，其他失败
+ * @note 必须在系统启动时调用
+ */
+esp_err_t app_manager_init(void);
+```
+
+### 14.4 错误处理
+
+- 使用 `esp_err_t` 返回错误码
+- 失败路径必须清理已分配资源
+- 提供详细的错误日志
+- 支持自动重试和状态恢复
+
+### 14.5 内存管理
+
+- 优先使用静态分配
+- 及时释放不再使用的内存
+- 使用内存池减少内存碎片
+- 避免在中断中分配内存
+- LVGL对象必须正确调用 `lv_obj_del()` 释放
+
+---
+
+## 十五、项目优化分析
+
+### 15.1 已完成优化
+
+| 优化项 | 优化前 | 优化后 | 效果 |
+|--------|--------|--------|------|
+| 显示配置 | 未启用PSRAM/PPA | 启用PSRAM+PPA加速+TRIPLE_PARTIAL | 提升UI渲染性能 |
+| 电源管理 | 锁逻辑反转 | 正确释放/获取锁 | 修复低功耗模式 |
+| BLE音频 | 20字节数据包，DRAM缓冲 | 120字节数据包，PSRAM缓冲 | 提升音频吞吐量 |
+| 应用管理 | 悬空指针 | 正确管理屏幕生命周期 | 防止崩溃 |
+| 内存保护 | stub实现，无统计 | 完整统计和dump功能 | 支持内存监控 |
+| 模块精简 | 编译6个非核心模块 | 移除非核心模块 | 节省~51KB代码空间 |
+| 传感器服务 | 健康检查永远失败 | 基于运行状态检查 | 防止无限重启 |
+| 编译优化 | DEBUG模式 | SIZE优化模式（CONFIG_COMPILER_OPTIMIZATION_SIZE=y） | 固件体积减少约20% |
+| PSRAM支持 | 未启用 | 启用32MB PSRAM | 释放内部DRAM |
+| 电池管理 | ADC电池检测（错误） | 直接供电模式，移除ADC | 避免错误的电池检测 |
+| 状态栏UI | 简单图标布局 | 仿手机系统状态栏，分组布局 | 提升视觉美观度 |
+| 主屏UI | 简单网格布局 | 仿手机主屏，带Dock栏 | 提升视觉美观度 |
+| 控制中心 | 简单面板 | 圆角卡片，阴影效果 | 提升视觉美观度 |
+| 相机应用 | 简单预览框 | 现代相机框架、聚焦角标、控制按钮组 | 仿手机相机界面 |
+| 设置应用 | 列表式布局 | 分组卡片设计、图标化设置项、现代滑块 | 提升视觉美观度 |
+| 计算器应用 | 基础按钮布局 | 现代渐变按钮、圆角显示框、阴影效果 | 仿手机计算器 |
+| 音乐播放器 | 简单播放控制 | 专辑封面显示、精美控制栏、进度条 | 提升视觉美观度 |
+| 文件浏览器 | 基础列表 | 文件卡片、图标识别、路径导航栏 | 提升视觉美观度 |
+| 相册应用 | 简单网格 | 现代卡片设计、阴影效果、预览优化 | 提升视觉美观度 |
+| 日历应用 | 基础日历显示 | 现代日历卡片、今日高亮、阴影效果 | 提升视觉美观度 |
+| 相机应用升级 | 现代相机框架 | 渐变背景顶栏、圆形快门按钮、阴影效果、双层底部栏 | 仿手机相机界面 |
+| 音乐播放器升级 | 专辑封面+控制栏 | 双层专辑封面卡片、更大阴影、渐变控制栏 | 提升视觉美观度 |
+| 视频播放器升级 | 视频区域+控制栏 | 更大视频显示区域、圆角阴影、渐变控制栏 | 提升视觉美观度 |
+| 文件浏览器升级 | 文件卡片列表 | 更大卡片、阴影效果、统一配色方案 | 提升视觉美观度 |
+| LVGL字体兼容 | 多种字体混用 | 统一使用lv_font_montserrat_14 | 修复编译错误 |
+
+### 15.2 关键修复
+
+| 修复项 | 文件 | 问题描述 | 修复方案 |
+|--------|------|----------|----------|
+| 健康检查时间单位 | `service_manager.c` | `esp_timer_get_time()` 返回微秒，但比较逻辑错误 | 添加正确的单位转换和初始化 |
+| 应用管理器内存泄漏 | `app_manager.c` | LVGL screen 对象未正确销毁 | 在切换应用时调用 `lv_obj_del()` |
+| 电源管理死锁 | `power_manager.c` | 低电量检测时在持有互斥锁情况下调用 `power_manager_set_mode()` | 直接调用 `enter_deep_sleep()` 避免死锁 |
+| 看门狗喂狗 | `main.c` | 主循环未定期喂狗 | 添加 `watchdog_manager_feed()` 调用 |
+| 服务健康检查 | `service_manager.c` | `last_health_check` 未初始化 | 在注册服务时初始化 |
+| 电池检测移除 | `power_manager.c` | 开发板无电池，ADC检测无效 | 移除ADC初始化和电池监测任务 |
+| is_home_screen死代码 | `app_manager.c` | `is_home_screen` 变量始终为false，导致屏幕管理逻辑错误 | 移除该变量，简化条件判断 |
+| 动态应用按钮内存泄漏 | `dynamic_app_engine.c` | `strdup` 分配的命令名称未释放 | 添加 `LV_EVENT_DELETE` 回调释放内存 |
+| 服务管理器竞态条件 | `service_manager.c` | 并发访问 services 数组无同步保护 | 添加递归互斥锁保护所有服务管理函数 |
+| 电源管理控制流错误 | `power_manager.c` | 自动休眠任务中 `idle_count = 0` 在 deep sleep 后不可达 | 移除不可达代码 |
+| 任务管理器线程安全 | `task_manager.c` | 并发访问 tasks 数组无同步保护 | 添加递归互斥锁保护所有任务管理函数 |
+| 应用管理器线程安全 | `app_manager.c` | 并发访问 apps 数组和当前应用状态无同步保护 | 添加递归互斥锁保护所有应用管理函数 |
+| 动态应用 on_exit 回调缺失 | `app_manager.c` / `app_manager.h` | 动态应用缺少 on_exit 回调支持 | 在 `app_info_t` 中添加 `data.dynamic.on_exit` 字段，并在 `go_home()` 和 `go_back()` 中调用 |
+
+### 15.3 硬件限制取舍
+
+| 资源 | 限制 | 策略 |
+|------|------|------|
+| Flash (16MB) | 应用分区2MB | OTA三分区，资源分区6MB |
+| PSRAM (32MB) | 显示缓冲占用 | 优先用于显示和音频缓冲 |
+| 内部DRAM | 有限容量 | 静态数组转动态分配 |
+| CPU (单核) | 计算能力有限 | 移除进程隔离，简化任务调度 |
+| 蓝牙 | ESP32-C6协处理器 | 主芯片专注UI，蓝牙放C6 |
+| 电源 | 直接供电（无电池） | 移除电池检测，使用AC_POWERED状态 |
+
+### 15.4 已修复问题清单
+
+| 问题 | 修复内容 | 文件 |
+|------|----------|------|
+| dynamic_app_engine死代码 | 移除未使用的grid_cells[15][15]数组和game_task任务句柄变量 | dynamic_app_engine.c |
+| 传感器未注册 | 添加I2C硬件探测，仅注册实际存在的传感器；缓存I2C设备句柄避免重复创建/销毁 | sensor_manager.c |
+| 状态栏时钟无真实时间 | 集成SNTP获取网络时间，使用`time()`和`localtime()`获取真实时间；添加CST时区设置 | status_bar.c, main.c |
+| SNTP启动时机错误 | 移至WiFi连接成功后启动，避免网络未就绪时无法获取时间 | main.c |
+| LIS3DH初始化逻辑错误 | 写入0x47到CTRL_REG1(0x20)启用传感器，修复读而不写的问题 | sensor_manager.c |
+| 大缓冲区使用内部DRAM | 将文件验证、JSON解析、WiFi扫描缓冲区迁移到PSRAM | app_signature.c, dynamic_app_engine.c, net_manager.c |
+| 阅读器大缓冲区 | 将book_content(最大256KB)改为PSRAM分配 | reader_app.c |
+| 应用安装器缓冲区 | 将内容缓冲区改为PSRAM分配 | app_installer.c |
+| memory_protection内存分配 | 使用heap_caps_malloc替代malloc，新增malloc_psram接口 | memory_protection.c/h |
+| 音频缓冲区过小 | 从4KB增大到32KB，提升音频吞吐量和稳定性 | bt_audio_service.c |
+| 电池相关死代码 | 移除GATT电池服务、状态栏电池图标、国际化电池字符串 | gatt_service.c, status_bar.c, i18n_manager.c |
+| 任务优先级层次 | 建立完整优先级体系：Critical(15) > UI(10) > Sensors(5) > Background(1) | bt_audio_service.c, watchdog_manager.c, ota_manager.c, app_downloader.c |
+| SPIRAM Kconfig警告 | 修复CONFIG_SPIRAM配置不一致问题 | sdkconfig.defaults |
+| 无效Kconfig选项 | 移除不存在的ADC配置选项 | sdkconfig.defaults |
+| gatt_register_cb死代码 | 移除未使用的GATT注册回调函数 | gatt_service.c |
+| PSRAM最大化利用 | 添加SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY、SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY、SPIRAM_USE_MALLOC配置 | sdkconfig.defaults |
+| utils模块内存分配 | hash_node和strdup改为heap_caps_malloc(MALLOC_CAP_SPIRAM)分配 | utils.c |
+| dynamic_app_engine内存分配 | widget_map的id和on_click回调字符串改为PSRAM分配 | dynamic_app_engine.c |
+| app_downloader内存分配 | URL字符串改为PSRAM分配，修复OTA任务中URL内存泄漏 | app_downloader.c |
+| ota_manager内存分配 | URL字符串改为PSRAM分配，修复OTA任务中URL内存泄漏 | ota_manager.c |
+| file_browser_app内存分配 | 文件路径和目录路径改为PSRAM分配 | file_browser_app.c |
+| net_settings_app内存分配 | SSID字符串改为PSRAM分配 | net_settings_app.c |
+| app_installer内存分配 | 路径和目录路径改为PSRAM分配 | app_installer.c |
+| structured_logging内存优化 | log_buffer静态数组改为PSRAM动态分配，新增struct_logging_deinit()函数 | structured_logging.c/h |
+| 内存泄漏检测增强 | 使用IDF heap tracing替代简单计数，新增memory_protection_dump_leaks()函数，配置CONFIG_HEAP_TRACING_STANDALONE=y和CONFIG_HEAP_TRACING_STACK_DEPTH=4 | memory_protection.c/h, sdkconfig.defaults |
+| LVGL任务堆栈调整 | 通过esp_lv_adapter配置提升LVGL任务堆栈大小，提升UI渲染稳定性 | main.c, sdkconfig.defaults |
+| 电源管理阈值优化 | 默认超时从120s调整为60s，范围从30-3600s调整为15-7200s | power_manager.c |
+| 内存池机制实现 | 新增memory_pool模块，支持PSRAM内存池管理，创建widgets/strings/buffers三个内存池 | memory_pool.c/h, main.c |
+| SPIFFS缓存优化 | 禁用CONFIG_SPIFFS_CACHE=n，减少DRAM占用 | sdkconfig.defaults |
+| PSRAM文件缓存模块 | 新增file_cache模块，基于PSRAM实现LRU文件缓存，最大64KB，支持16个缓存条目 | file_cache.c/h, main.c |
+
+### 15.5 剩余不足与建议
+
+| 不足 | 影响 | 建议 |
+|------|------|------|
+| 文件缓存命中率 | 当前LRU策略可能不够优化 | 实现LFU或自适应缓存策略 |
+
+### 15.6 构建验证结果
+
+| 项目 | 值 |
+|------|-----|
+| 文档版本 | 7.1 |
+| 最后更新 | 2026-07-16 |
+| 构建状态 | ✅ 构建成功 |
+| 编译模式 | SIZE优化 |
+| 固件大小 | 0x1d7890 字节（约1.86MB） |
+| 分区剩余 | 0x28770 字节（8%） |
+| Bootloader大小 | 0x5d50 字节（3%空闲） |
+| 构建命令 | `.\build.ps1` |
+| Kconfig警告 | ✅ 已清理无效配置项 |
+
+### 15.7 可靠性优化汇总
+
+本次优化主要针对以下几个方面：
+
+**线程安全优化**
+
+| 模块 | 优化内容 | 互斥锁类型 |
+|------|----------|------------|
+| service_manager | 保护 services 数组的所有访问操作 | 递归互斥锁 |
+| task_manager | 保护 tasks 数组的所有访问操作 | 递归互斥锁 |
+| app_manager | 保护 apps 数组和当前应用状态 | 递归互斥锁 |
+
+**内存管理优化**
+
+| 模块 | 修复内容 |
+|------|----------|
+| dynamic_app_engine | 添加 `LV_EVENT_DELETE` 回调释放 `strdup` 分配的内存 |
+| app_manager | 移除死代码，简化屏幕管理逻辑 |
+| sdkconfig | 启用SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY、SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY和SPIRAM_USE_MALLOC，允许BSS段和NOINIT段放入PSRAM |
+| utils | hash_node和strdup全部改为heap_caps_malloc(MALLOC_CAP_SPIRAM)分配，释放内部DRAM |
+| app_downloader/ota_manager | URL字符串改为PSRAM分配，修复OTA任务中URL内存泄漏问题 |
+| file_browser_app | 文件路径和目录路径改为PSRAM分配 |
+| net_settings_app | SSID字符串改为PSRAM分配 |
+| app_installer | 路径和目录路径改为PSRAM分配 |
+
+**控制流优化**
+
+| 模块 | 修复内容 |
+|------|----------|
+| power_manager | 移除 deep sleep 后的不可达代码 |
+
+**回调完整性**
+
+| 模块 | 修复内容 |
+|------|----------|
+| app_manager | 为动态应用添加 `on_exit` 回调支持 |
+
+---
+
+## 十六、问题排查
+
+### 16.1 日志输出
+
+```c
 #include "esp_log.h"
 
-static const char *TAG = "MY_APP";
+static const char *TAG = "MY_MODULE";
 
-static void back_button_cb(lv_event_t *e)
-{
-    app_manager_go_home();
-}
-
-lv_obj_t *my_app_create(void)
-{
-    // 创建屏幕
-    lv_obj_t *scr = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x1a1a2e), 0);
-    lv_obj_set_style_border_width(scr, 0, 0);
-
-    // 添加状态栏
-    status_bar_create(scr);
-
-    // 添加标题
-    lv_obj_t *title = lv_label_create(scr);
-    lv_label_set_text(title, "My App");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 50);
-
-    // 添加返回按钮
-    lv_obj_t *back_btn = lv_btn_create(scr);
-    lv_obj_set_size(back_btn, 100, 40);
-    lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x3a3a5a), 0);
-    lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x4a4a6a), LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(back_btn, 0, 0);
-    lv_obj_set_style_radius(back_btn, 8, 0);
-    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 20, -20);
-    lv_obj_add_event_cb(back_btn, back_button_cb, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *back_label = lv_label_create(back_btn);
-    lv_label_set_text(back_label, "Back");
-    lv_obj_set_style_text_font(back_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(back_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_center(back_label);
-
-    ESP_LOGI(TAG, "My app created");
-    return scr;
-}
+ESP_LOGI(TAG, "Info message");
+ESP_LOGW(TAG, "Warning message");
+ESP_LOGE(TAG, "Error message");
+ESP_LOGD(TAG, "Debug message");
 ```
 
-### 1.4 注册Native App
-
-在 `main.c` 的 `register_native_apps()` 函数中添加：
+### 16.2 内存调试
 
 ```c
-memset(&app, 0, sizeof(app));
-strcpy(app.name, "my_app");
-strcpy(app.title, "My App");
-strcpy(app.icon, "⭐");
-app.type = APP_TYPE_NATIVE;
-app.data.native.create_screen = my_app_create;
-app_manager_register(&app);
+#include "esp_heap_caps.h"
+
+void print_memory_info() {
+    size_t free_heap = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    size_t total_heap = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
+    size_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    size_t total_psram = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+    printf("Heap: %lu/%lu bytes free\n", free_heap, total_heap);
+    printf("PSRAM: %lu/%lu bytes free\n", free_psram, total_psram);
+}
 ```
 
-### 1.5 更新CMakeLists.txt
+### 16.3 常见问题
 
-在 `main/CMakeLists.txt` 中添加源文件：
+| 问题 | 原因 | 解决方案 |
+|------|------|----------|
+| 构建失败 | 缺少依赖 | 运行 `idf.py install` |
+| 内存不足 | 动态分配过多 | 使用静态分配或内存池 |
+| LVGL显示异常 | 样式配置错误 | 检查样式设置，使用 `ui_utils` |
+| 蓝牙连接失败 | 权限未开启 | 调用 `bt_manager_enable()` |
+| SD卡无法挂载 | 引脚配置错误 | 检查 SDMMC 引脚配置 |
+| 屏幕闪烁 | 撕裂避免模式未启用 | 启用 TRIPLE_PARTIAL 模式 |
+| 音频卡顿 | 缓冲区不足 | 增大 PSRAM 缓冲区大小 |
 
-```cmake
-idf_component_register(SRCS "main.c"
-                    "apps/my_app.c"
-                    ...
-                    INCLUDE_DIRS "." "system" "apps"
-                    REQUIRES bsp)
+---
+
+## 十七、动态应用开发
+
+### 17.1 应用包格式
+
+动态应用支持两种格式：
+
+#### 格式1：目录形式（开发调试用）
+
+```
+my_app/
+├── manifest.json    # 应用清单
+├── layout.json      # 布局定义
+├── icon.png         # 应用图标
+└── assets/          # 资源文件
+    └── ...
 ```
 
-## 二、Dynamic App开发
+#### 格式2：epp 压缩包（发布用）
 
-### 2.1 App包格式规范
+使用 `pack_app.py` 工具打包：
 
-每个Dynamic App是一个文件夹，位于 `/spiffs/apps/` 目录下：
-
-```
-/spiffs/apps/
-└── my_dynamic_app/
-    ├── manifest.json      # 必需：应用元数据
-    ├── layout.json        # 必需：UI布局定义
-    ├── icon.txt           # 可选：应用图标（emoji）
-    └── resources/         # 可选：资源文件目录
+```bash
+python pack_app.py my_app/
 ```
 
-### 2.2 manifest.json 格式
+生成 `my_app.epp` 文件。
+
+### 17.2 manifest.json 格式
 
 ```json
 {
-    "name": "my_dynamic_app",
-    "title": "My Dynamic App",
+    "name": "My Dynamic App",
     "version": "1.0.0",
+    "description": "A dynamic application example",
+    "icon": "icon.png",
     "author": "Developer",
-    "description": "A sample dynamic application",
-    "icon": "📱",
-    "entry_point": "layout.json",
-    "type": "dynamic",
-    "permissions": ["display", "touch"]
+    "permissions": ["network", "storage"],
+    "main": "layout.json",
+    "config": {
+        "background_color": "#FFFFFF",
+        "text_color": "#000000"
+    }
 }
 ```
 
-**字段说明：**
+**字段说明**：
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| name | string | 是 | 应用唯一标识符（小写字母+下划线） |
-| title | string | 是 | 显示名称 |
-| version | string | 否 | 版本号 |
-| author | string | 否 | 作者 |
+| name | string | 是 | 应用名称 |
+| version | string | 是 | 版本号 |
 | description | string | 否 | 应用描述 |
-| icon | string | 否 | Emoji图标，默认"📱" |
-| entry_point | string | 否 | 入口文件，默认"layout.json" |
-| type | string | 是 | "dynamic" |
-| permissions | array | 否 | 权限列表 |
+| icon | string | 是 | 图标文件名 |
+| author | string | 否 | 作者 |
+| permissions | array | 是 | 所需权限列表 |
+| main | string | 是 | 主布局文件 |
+| config | object | 否 | 应用配置 |
 
-### 2.3 layout.json 格式
+### 17.3 layout.json 格式
+
+```json
+{
+    "type": "grid",
+    "rows": 4,
+    "cols": 2,
+    "gap": 10,
+    "padding": 20,
+    "children": [
+        {
+            "type": "label",
+            "text": "Welcome!",
+            "font_size": 24,
+            "alignment": "center",
+            "row": 0,
+            "col": 0,
+            "row_span": 1,
+            "col_span": 2
+        },
+        {
+            "type": "button",
+            "text": "Click Me",
+            "row": 1,
+            "col": 0,
+            "command": {
+                "action": "show_message",
+                "params": {
+                    "message": "Button clicked!"
+                }
+            }
+        }
+    ]
+}
+```
+
+### 17.4 支持的控件类型
+
+| 类型 | 说明 | 支持属性 |
+|------|------|----------|
+| label | 标签 | text, color, font, align, x, y |
+| button | 按钮 | text, color, bg_color, width, height, align, x, y, on_click |
+| rect | 矩形 | bg_color, width, height, align, x, y |
+| grid | 网格布局 | bg_color, width, height, rows, cols, gap |
+| flex | 弹性布局 | bg_color, width, height, padding, gap |
+| container | 容器布局 | bg_color, width, height, padding |
+| slider | 滑块 | width, height, bg_color, accent_color, min, max, value |
+| checkbox | 复选框 | text, color, bg_color, accent_color, checked, on_click |
+| input | 输入框 | text, color, bg_color, width, height |
+| progress | 进度条 | width, height, bg_color, accent_color, min, max, value |
+
+### 17.5 控件属性说明
+
+#### 通用属性
+
+| 属性 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| id | string | - | 控件唯一标识 |
+| type | string | - | 控件类型 |
+| x | int | 0 | X坐标偏移 |
+| y | int | 0 | Y坐标偏移 |
+| align | string | center | 对齐方式 |
+| width | int | 100 | 宽度 |
+| height | int | 50 | 高度 |
+| color | string | #FFFFFF | 文本颜色 |
+| bg_color | string | #2d2d44 | 背景颜色 |
+| accent_color | string | #6c5ce7 | 强调色 |
+
+#### 特定控件属性
+
+| 控件 | 属性 | 说明 |
+|------|------|------|
+| label | text | 显示文本 |
+| button | text, on_click | 按钮文本和点击事件 |
+| slider | min, max, value | 最小值、最大值、当前值 |
+| checkbox | text, checked, on_click | 文本、选中状态、点击事件 |
+| input | text | 占位文本 |
+| progress | min, max, value | 最小值、最大值、当前值 |
+| grid | rows, cols, gap | 行数、列数、间距 |
+| flex | padding, gap | 内边距、间距 |
+
+### 17.6 支持的命令
+
+| 命令 | 说明 | 参数 |
+|------|------|------|
+| set_text | 设置文本 | target, value |
+| set_value | 设置滑块值 | target, value |
+| set_progress | 设置进度值 | target, value |
+| set_checked | 设置复选框状态 | target, value |
+| set_color | 设置颜色 | target, color |
+| hide | 隐藏控件 | target |
+| show | 显示控件 | target |
+| set_enabled | 启用/禁用控件 | target, value |
+| go_home | 返回主页 | - |
+
+### 17.7 layout.json 完整示例
 
 ```json
 {
@@ -202,352 +1598,358 @@ idf_component_register(SRCS "main.c"
             {
                 "type": "label",
                 "id": "title",
-                "text": "Hello World",
-                "font": "montserrat_14",
+                "text": "Settings",
                 "color": "#FFFFFF",
                 "align": "top_mid",
-                "x": 0,
                 "y": 50
             },
             {
-                "type": "button",
-                "id": "btn_click",
-                "text": "Click Me",
-                "width": 200,
-                "height": 50,
-                "bg_color": "#4a4a6a",
-                "color": "#FFFFFF",
+                "type": "flex",
+                "id": "container",
+                "width": 400,
+                "height": 300,
+                "bg_color": "#252540",
+                "padding": 20,
+                "gap": 10,
                 "align": "center",
-                "x": 0,
-                "y": 0,
-                "on_click": "show_message"
-            },
-            {
-                "type": "rect",
-                "id": "color_box",
-                "width": 100,
-                "height": 100,
-                "bg_color": "#FF0000",
-                "align": "center",
-                "x": 0,
-                "y": 100
+                "children": [
+                    {
+                        "type": "slider",
+                        "id": "brightness",
+                        "width": 300,
+                        "height": 30,
+                        "bg_color": "#3a3a5a",
+                        "accent_color": "#6c5ce7",
+                        "min": 0,
+                        "max": 100,
+                        "value": 50
+                    },
+                    {
+                        "type": "checkbox",
+                        "id": "notifications",
+                        "text": "Enable Notifications",
+                        "color": "#FFFFFF",
+                        "checked": "true",
+                        "on_click": "toggle_notifications"
+                    },
+                    {
+                        "type": "button",
+                        "id": "save_btn",
+                        "text": "Save",
+                        "width": 120,
+                        "height": 40,
+                        "bg_color": "#4a8a6a",
+                        "color": "#FFFFFF",
+                        "on_click": "save_settings"
+                    }
+                ]
             }
-        ]
-    },
-    "commands": {
-        "show_message": {
-            "action": "set_text",
-            "target": "title",
-            "value": "Button Clicked!"
-        },
-        "go_home": {
-            "action": "go_home"
+        ],
+        "commands": {
+            "save_settings": {
+                "action": "go_home"
+            },
+            "toggle_notifications": {
+                "action": "set_enabled",
+                "target": "notifications",
+                "value": "false"
+            }
         }
     }
 }
 ```
 
-### 2.4 支持的控件类型
+---
 
-#### Label（标签）
+## 十八、BSP API参考
 
-```json
-{
-    "type": "label",
-    "id": "my_label",
-    "text": "Hello",
-    "font": "montserrat_14",
-    "color": "#FFFFFF",
-    "align": "center",
-    "x": 0,
-    "y": 0
-}
-```
-
-#### Button（按钮）
-
-```json
-{
-    "type": "button",
-    "id": "my_button",
-    "text": "Click",
-    "width": 200,
-    "height": 50,
-    "bg_color": "#4a4a6a",
-    "color": "#FFFFFF",
-    "align": "center",
-    "x": 0,
-    "y": 0,
-    "on_click": "command_name"
-}
-```
-
-#### Rect（矩形）
-
-```json
-{
-    "type": "rect",
-    "id": "my_rect",
-    "width": 100,
-    "height": 100,
-    "bg_color": "#FF0000",
-    "align": "center",
-    "x": 0,
-    "y": 0
-}
-```
-
-### 2.5 支持的对齐方式
-
-- `top_left`, `top_mid`, `top_right`
-- `left_mid`, `center`, `right_mid`
-- `bottom_left`, `bottom_mid`, `bottom_right`
-
-### 2.6 支持的命令动作
-
-| 动作 | 参数 | 说明 |
-|------|------|------|
-| set_text | target, value | 设置指定控件的文本 |
-| go_home | 无 | 返回主屏幕 |
-
-### 2.7 安装Dynamic App
-
-将应用文件夹复制到SPIFFS的 `/apps/` 目录下：
-
-```bash
-# 方法1：使用idf.py partition-table-flash和spiffs-flash
-python -m spiffsgen 8388608 apps_spiffs spiffs.bin
-python -m esptool --chip esp32p4 write_flash 0x110000 spiffs.bin
-
-# 方法2：通过SD卡安装
-# 将app文件夹复制到SD卡的/apps/目录下
-# 在SD卡应用中使用安装功能
-```
-
-## 三、BSP API参考
-
-### 3.1 显示API
-
-```c
-#include "bsp/display.h"
-
-// 初始化显示
-lv_display_t *disp = bsp_display_start_with_config(&cfg);
-
-// 背光控制
-bsp_display_backlight_on();
-bsp_display_backlight_off();
-bsp_display_set_backlight(brightness);
-
-// 显示锁定（用于多任务）
-bsp_display_lock(portMAX_DELAY);
-bsp_display_unlock();
-```
-
-### 3.2 触摸API
-
-```c
-#include "bsp/touch.h"
-
-// 获取触摸点
-lv_indev_t *indev = bsp_touch_init();
-lv_point_t point;
-lv_indev_get_point(indev, &point);
-```
-
-### 3.3 I2C API
+### 18.1 显示API
 
 ```c
 #include "bsp/esp32_p4_platform.h"
 
-// 初始化I2C
-bsp_i2c_init();
-
-// 获取I2C总线句柄
-i2c_master_bus_handle_t bus = bsp_i2c_get_bus();
+lv_display_t *bsp_display_start(void);
+lv_display_t *bsp_display_start_with_config(bsp_display_cfg_t *cfg);
+esp_err_t bsp_display_brightness_set(int brightness_percent);
+esp_err_t bsp_display_backlight_on(void);
+esp_err_t bsp_display_backlight_off(void);
+esp_err_t bsp_display_lock(uint32_t timeout_ms);
+void bsp_display_unlock(void);
+lv_indev_t *bsp_display_get_input_dev(void);
+esp_lcd_panel_handle_t bsp_display_get_panel_handle(void);
 ```
 
-### 3.4 SD卡API
+**显示配置结构**：
 
 ```c
-#include "bsp/sdcard.h"
-
-// 挂载SD卡
-esp_err_t ret = bsp_sdcard_mount();
-
-// 卸载SD卡
-bsp_sdcard_unmount();
+typedef struct {
+    int max_transfer_sz;
+    int hres;
+    int vres;
+    bool double_buffer;
+} bsp_display_cfg_t;
 ```
 
-### 3.5 SPIFFS API
+### 18.2 触摸API
 
 ```c
-#include "bsp/spiffs.h"
+#include "bsp/touch.h"
 
-// 挂载SPIFFS
-esp_err_t ret = bsp_spiffs_mount();
-
-// 卸载SPIFFS
-bsp_spiffs_unmount();
+esp_err_t bsp_touch_new(const bsp_display_cfg_t *cfg, esp_lcd_touch_handle_t *ret_touch);
 ```
 
-### 3.6 音频API
+### 18.3 I2C API
 
 ```c
-#include "bsp/audio.h"
+#include "bsp/esp32_p4_platform.h"
 
-// 初始化音频
-esp_codec_dev_handle_t speaker = bsp_audio_init();
-
-// 设置音量
-esp_codec_dev_set_out_vol(speaker, volume);
+esp_err_t bsp_i2c_init(void);
+esp_err_t bsp_i2c_deinit(void);
+int bsp_i2c_scan(uint8_t *addr_list, int max_count);
+esp_err_t bsp_i2c_write(uint8_t addr, uint8_t *data, size_t len);
+esp_err_t bsp_i2c_read(uint8_t addr, uint8_t *data, size_t len);
 ```
 
-## 四、LVGL常用控件示例
-
-### 4.1 创建标签
+### 18.4 SD卡API
 
 ```c
-lv_obj_t *label = lv_label_create(parent);
-lv_label_set_text(label, "Hello World");
-lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
-lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
-lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
+#include "bsp/esp32_p4_platform.h"
+
+esp_err_t bsp_sdcard_init(void);
+esp_err_t bsp_sdcard_deinit(void);
+bool bsp_sdcard_is_mounted(void);
+size_t bsp_sdcard_get_size(void);
 ```
 
-### 4.2 创建按钮
+### 18.5 音频API
 
 ```c
-lv_obj_t *btn = lv_btn_create(parent);
-lv_obj_set_size(btn, 200, 50);
-lv_obj_set_style_bg_color(btn, lv_color_hex(0x4a4a6a), 0);
-lv_obj_set_style_bg_color(btn, lv_color_hex(0x5a5a8a), LV_STATE_PRESSED);
-lv_obj_add_event_cb(btn, my_callback, LV_EVENT_CLICKED, NULL);
+#include "bsp/esp32_p4_platform.h"
 
-lv_obj_t *btn_label = lv_label_create(btn);
-lv_label_set_text(btn_label, "Click Me");
-lv_obj_center(btn_label);
+esp_err_t bsp_audio_init(void);
+esp_err_t bsp_audio_deinit(void);
+esp_err_t bsp_audio_play(const char *path);
+void bsp_audio_stop(void);
+esp_err_t bsp_audio_set_volume(int volume);
 ```
 
-### 4.3 创建滑块
+---
+
+## 十九、服务管理器
+
+### 19.1 概述
+
+`service_manager` 模块提供后台服务管理功能，支持服务注册、优先级调度、健康检查和自动重启。
+
+### 19.2 服务状态
+
+| 状态 | 说明 |
+|------|------|
+| SERVICE_STATE_STOPPED | 已停止 |
+| SERVICE_STATE_RUNNING | 运行中 |
+| SERVICE_STATE_PAUSED | 已暂停 |
+| SERVICE_STATE_CRASHED | 已崩溃 |
+| SERVICE_STATE_STARTING | 启动中 |
+
+### 19.3 服务优先级
+
+| 优先级 | 值 | 说明 |
+|--------|-----|------|
+| SERVICE_PRIORITY_LOW | 1 | 低优先级 |
+| SERVICE_PRIORITY_MEDIUM | 5 | 中优先级 |
+| SERVICE_PRIORITY_HIGH | 10 | 高优先级 |
+| SERVICE_PRIORITY_CRITICAL | 15 | 关键优先级 |
+
+### 19.4 API 函数列表
+
+| 函数 | 说明 |
+|------|------|
+| `service_manager_init()` | 初始化服务管理器 |
+| `service_manager_register()` | 注册服务 |
+| `service_manager_unregister()` | 注销服务 |
+| `service_manager_start()` | 启动服务 |
+| `service_manager_stop()` | 停止服务 |
+| `service_manager_pause()` | 暂停服务 |
+| `service_manager_resume()` | 恢复服务 |
+| `service_manager_get_state()` | 获取服务状态 |
+| `service_manager_set_auto_restart()` | 设置自动重启 |
+| `service_manager_set_resource_limits()` | 设置资源限制 |
+| `service_manager_set_health_check()` | 设置健康检查 |
+| `service_manager_run_health_checks()` | 运行健康检查 |
+| `service_manager_dump_services()` | 输出服务状态 |
+
+**健康检查注意事项**：
+- `health_check_interval_ms` 参数单位为毫秒
+- `esp_timer_get_time()` 返回微秒，需乘以 1000 转换
+- 注册服务时自动初始化 `last_health_check` 时间戳
+
+---
+
+## 二十、OTA管理器
+
+### 20.1 概述
+
+`ota_manager` 模块提供固件 OTA 升级功能，支持下载、验证和更新流程。
+
+### 20.2 OTA状态
+
+| 状态 | 说明 |
+|------|------|
+| OTA_STATE_IDLE | 空闲 |
+| OTA_STATE_DOWNLOADING | 下载中 |
+| OTA_STATE_VERIFYING | 验证中 |
+| OTA_STATE_UPDATING | 更新中 |
+| OTA_STATE_COMPLETED | 已完成 |
+| OTA_STATE_FAILED | 失败 |
+
+### 20.3 API 函数列表
+
+| 函数 | 说明 |
+|------|------|
+| `ota_manager_init()` | 初始化OTA管理器 |
+| `ota_manager_start_update()` | 开始OTA更新 |
+| `ota_manager_get_state()` | 获取OTA状态 |
+| `ota_manager_get_progress()` | 获取更新进度 |
+| `ota_manager_register_progress_cb()` | 注册进度回调 |
+| `ota_manager_register_complete_cb()` | 注册完成回调 |
+| `ota_manager_reboot()` | 重启设备 |
+
+---
+
+## 二十一、其他系统模块
+
+### 21.1 控制中心
 
 ```c
-lv_obj_t *slider = lv_slider_create(parent);
-lv_obj_set_size(slider, 300, 25);
-lv_slider_set_range(slider, 0, 100);
-lv_slider_set_value(slider, 50, LV_ANIM_OFF);
-lv_obj_add_event_cb(slider, value_changed, LV_EVENT_VALUE_CHANGED, NULL);
+#include "system/control_center.h"
+
+esp_err_t control_center_init(void);
+void control_center_show(lv_obj_t *parent);
+void control_center_hide(void);
+void control_center_update_wifi_status(bool enabled, bool connected, const char *ssid);
+void control_center_update_bt_status(bool enabled, bool connected, const char *device_name);
 ```
 
-### 4.4 创建容器
+### 21.2 崩溃处理
 
 ```c
-lv_obj_t *container = lv_obj_create(parent);
-lv_obj_set_size(container, 400, 300);
-lv_obj_set_style_bg_color(container, lv_color_hex(0x252540), 0);
-lv_obj_set_style_border_width(container, 1, 0);
-lv_obj_set_style_border_color(container, lv_color_hex(0x3a3a5a), 0);
+#include "system/crash_handler.h"
+
+esp_err_t crash_handler_init(void);
+void crash_handler_register_callback(void (*cb)(crash_info_t *info));
+void crash_handler_save_log(crash_type_t type, const char *message);
+bool crash_handler_has_crash_log(void);
+esp_err_t crash_handler_read_log(crash_info_t *info);
+void crash_handler_reboot(void);
 ```
 
-## 五、调试方法
-
-### 5.1 日志输出
+### 21.3 安全管理器
 
 ```c
-#include "esp_log.h"
+#include "system/security_manager.h"
 
-static const char *TAG = "MY_APP";
-
-ESP_LOGI(TAG, "Info message");
-ESP_LOGW(TAG, "Warning message");
-ESP_LOGE(TAG, "Error message");
-ESP_LOGD(TAG, "Debug message");
+esp_err_t security_manager_init(void);
+esp_err_t security_manager_register_app(const char *app_name, security_level_t level, uint32_t required_permissions);
+bool security_manager_check_permission(const char *app_name, permission_t perm);
+esp_err_t security_manager_grant_permission(const char *app_name, permission_t perm);
+esp_err_t security_manager_revoke_permission(const char *app_name, permission_t perm);
 ```
 
-### 5.2 串口输出
-
-确保设备通过USB连接，使用以下命令查看日志：
-
-```bash
-idf.py monitor
-```
-
-### 5.3 LVGL调试
-
-启用LVGL日志：
+### 21.4 看门狗管理器
 
 ```c
-#define LV_LOG_LEVEL LV_LOG_LEVEL_INFO
+#include "system/watchdog_manager.h"
+
+esp_err_t watchdog_manager_init(void);
+esp_err_t watchdog_manager_start(uint32_t timeout_ms);
+void watchdog_manager_stop(void);
+void watchdog_manager_feed(void);
+void watchdog_manager_pause(void);
+void watchdog_manager_resume(void);
 ```
 
-## 六、构建与烧录
+**使用建议**：
+- 在主循环中定期调用 `watchdog_manager_feed()`
+- 设置合理的超时时间（建议30秒）
+- 在长时间操作前暂停看门狗
 
-### 6.1 构建项目
+### 21.5 其他模块
 
-```bash
-cd e:/phone
-idf.py build
-```
+| 模块 | 文件 | 用途 |
+|------|------|------|
+| i18n管理 | `i18n_manager.c/h` | 国际化支持 |
+| 内存保护 | `memory_protection.c/h` | 内存区域保护（简化版） |
+| 安全存储 | `secure_storage.c/h` | 加密存储 |
+| 传感器管理 | `sensor_manager.c/h` | 传感器管理 |
+| 结构化日志 | `structured_logging.c/h` | 结构化日志 |
+| 任务管理 | `task_manager.c/h` | 任务调度 |
+| 手势管理 | `gesture_manager.c/h` | 手势识别 |
+| 通知管理 | `notification_manager.c/h` | 通知系统 |
 
-### 6.2 烧录到设备
+**已移除模块**（硬件限制取舍）：
 
-```bash
-idf.py -p COM3 flash
-```
+| 模块 | 移除原因 |
+|------|----------|
+| 进程隔离 | ESP32-P4不支持完整MMU |
+| IPC管理 | 双芯片通信已简化 |
+| HID服务 | 非核心功能 |
+| GATT客户端 | 按需初始化 |
+| Mesh管理 | Mesh组网非必需 |
+| 搜索管理 | 搜索功能非核心 |
 
-### 6.3 构建并烧录
+---
 
-```bash
-idf.py -p COM3 build flash monitor
-```
+## 附录：快速参考
 
-## 七、项目目录结构
+### 常用 ESP-IDF 命令
 
-```
-esp32-p4-phone/
-├── main/                      # 主应用代码
-│   ├── apps/                  # Native应用
-│   │   ├── display_app.c/h
-│   │   ├── touch_app.c/h
-│   │   ├── i2c_app.c/h
-│   │   ├── sdcard_app.c/h
-│   │   ├── audio_app.c/h
-│   │   ├── settings_app.c/h
-│   │   └── info_app.c/h
-│   ├── system/                # 系统模块
-│   │   ├── app_manager.c/h
-│   │   ├── app_installer.c/h
-│   │   ├── dynamic_app_engine.c/h
-│   │   ├── home_screen.c/h
-│   │   └── status_bar.c/h
-│   ├── CMakeLists.txt
-│   └── main.c
-├── components/                # 组件
-│   ├── bsp/                   # BSP板级支持包
-│   └── bsp_st7102/            # ST7102显示驱动
-├── managed_components/        # 管理组件
-├── partitions.csv             # 分区表配置
-├── sdkconfig                  # ESP-IDF配置
-└── CMakeLists.txt             # 项目构建配置
-```
+| 命令 | 说明 |
+|------|------|
+| `idf.py build` | 构建项目 |
+| `idf.py flash` | 烧录固件 |
+| `idf.py monitor` | 启动串口监视器 |
+| `idf.py clean` | 清理构建目录 |
+| `idf.py size` | 查看固件大小 |
 
-## 八、性能优化建议
+### 常用 LVGL 控件
 
-1. **内存管理**：使用 `heap_caps_malloc(MALLOC_CAP_SPIRAM)` 分配大内存到PSRAM
-2. **LVGL优化**：启用LVGL的DMA2D支持和双缓冲
-3. **任务优先级**：合理设置FreeRTOS任务优先级
-4. **资源压缩**：压缩图片资源，使用合适的字体大小
+| 控件 | 创建函数 | 说明 |
+|------|----------|------|
+| 标签 | `lv_label_create()` | 显示文本 |
+| 按钮 | `lv_button_create()` | 用户交互按钮 |
+| 滑块 | `lv_slider_create()` | 数值调节 |
+| 复选框 | `lv_checkbox_create()` | 布尔选择 |
+| 进度条 | `lv_bar_create()` | 进度显示 |
+| 输入框 | `lv_textarea_create()` | 文本输入 |
+| 容器 | `lv_obj_create()` | 布局容器 |
+| 列表 | `lv_list_create()` | 列表显示 |
 
-## 九、常见问题
+### 常用系统模块
 
-### Q: Dynamic App无法加载？
-A: 检查SPIFFS是否正确挂载，确认manifest.json格式正确，检查路径是否正确。
+| 模块 | 文件 | 用途 |
+|------|------|------|
+| 应用管理 | `app_manager.c/h` | 应用生命周期 |
+| 网络管理 | `net_manager.c/h` | WiFi连接 |
+| 蓝牙管理 | `bt_manager.c/h` | 蓝牙控制 |
+| 权限管理 | `permission_manager.c/h` | 权限控制 |
+| 电源管理 | `power_manager.c/h` | 低功耗管理 |
+| UI工具 | `ui_utils.c/h` | 标准化UI |
+| 通用工具 | `utils.c/h` | 工具函数 |
+| 签名验证 | `app_signature.c/h` | 应用签名 |
+| 固件校验 | `firmware_verify.c/h` | 固件完整性 |
+| 服务管理 | `service_manager.c/h` | 后台服务 |
+| OTA管理 | `ota_manager.c/h` | 固件升级 |
+| 安全管理 | `security_manager.c/h` | 安全策略 |
 
-### Q: 触摸坐标不正确？
-A: 在BSP配置中调整`swap_xy`、`mirror_x`、`mirror_y`参数。
+### 常用 UI Utils 函数
 
-### Q: 编译错误"undefined reference"?
-A: 检查CMakeLists.txt是否包含了源文件，检查头文件是否正确包含。
-
-### Q: 内存不足？
-A: 减少LVGL对象数量，使用PSRAM，优化图片资源。
+| 函数 | 说明 |
+|------|------|
+| `ui_utils_create_screen()` | 创建屏幕 |
+| `ui_utils_create_container()` | 创建容器 |
+| `ui_utils_create_button()` | 创建按钮 |
+| `ui_utils_create_title()` | 创建标题 |
+| `ui_utils_create_slider()` | 创建滑块 |
+| `ui_utils_create_checkbox()` | 创建复选框 |
+| `ui_utils_create_progress()` | 创建进度条 |
+| `ui_utils_create_input()` | 创建输入框 |

@@ -1,0 +1,47 @@
+version: "0.6.0-beta2"
+description: ESP-Brookesia-Core is a core component of ESP-Brookesia.
+url: https://github.com/espressif/esp-brookesia/tree/master/core/brookesia_core
+issues: https://github.com/espressif/esp-brookesia/issues
+repository: https://github.com/espressif/esp-brookesia.git
+dependencies:
+  ## IDF version constraint - Support IDF 5.3 to 6.x
+  idf: ">=5.3,<7.0"
+
+  ## cjson is included in IDF 6.x, so we use it conditionally
+  espressif/cjson:
+    version: "^1.7.15"
+    public: true
+    rules:
+      - if: "idf_version >= 6.0"
+
+  # Utilities
+  espressif/cmake_utilities:
+    version: "0.*"
+    public: true
+
+  espressif/esp-lib-utils:
+    version: "0.3.*"
+    public: true
+
+  ## esp-boost version depends on IDF version
+  espressif/esp-boost:
+    public: true
+    matches:
+      - if: "idf_version >= 6.0"
+        version: "^0.6"
+      - if: "idf_version < 6.0"
+        version: "0.3.*"
+
+  # GUI - LVGL
+  lvgl/lvgl:
+    version: "9.4.*"
+    public: true
+
+  # GUI - Animation Player
+  espressif2022/image_player:
+    version: "1.1.*"
+    public: true
+
+  espressif/esp_mmap_assets:
+    version: "1.3.*"
+    public: true

@@ -2,7 +2,9 @@
 #include "app_manager.h"
 #include "status_bar.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "lvgl.h"
+#include "freertos/FreeRTOS.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -16,6 +18,10 @@ typedef struct {
 
 static widget_map_t widget_map[32];
 static int widget_count = 0;
+static int grid_rows = 0;
+static int grid_cols = 0;
+static int grid_cell_size = 0;
+static lv_obj_t *grid_container = NULL;
 
 static void skip_whitespace(const char **json)
 {
@@ -84,16 +90,20 @@ static lv_obj_t *find_widget(const char *id)
 static void add_widget(const char *id, lv_obj_t *obj)
 {
     if (widget_count < 32) {
-        widget_map[widget_count].id = strdup(id);
-        widget_map[widget_count].obj = obj;
-        widget_count++;
+        size_t len = strlen(id) + 1;
+        widget_map[widget_count].id = (const char *)heap_caps_malloc(len, MALLOC_CAP_SPIRAM);
+        if (widget_map[widget_count].id) {
+            memcpy((void *)widget_map[widget_count].id, id, len);
+            widget_map[widget_count].obj = obj;
+            widget_count++;
+        }
     }
 }
 
 static void clear_widget_map(void)
 {
     for (int i = 0; i < widget_count; i++) {
-        free((void *)widget_map[i].id);
+        heap_caps_free((void *)widget_map[i].id);
     }
     widget_count = 0;
 }
@@ -124,6 +134,9 @@ static void handle_command(const char *command_name, const char *json)
     char action[32] = {0};
     char target[32] = {0};
     char value[128] = {0};
+    char color_str[16] = {0};
+    int int_value = 0;
+    bool bool_value = false;
     
     while (*p != '}' && *p != '\0') {
         skip_whitespace(&p);
@@ -138,18 +151,76 @@ static void handle_command(const char *command_name, const char *json)
             parse_string(&p, target, sizeof(target));
         } else if (strcmp(key, "value") == 0) {
             parse_string(&p, value, sizeof(value));
+            int_value = atoi(value);
+            bool_value = (strcmp(value, "true") == 0);
+        } else if (strcmp(key, "color") == 0) {
+            parse_string(&p, color_str, sizeof(color_str));
         } else {
             while (*p != ',' && *p != '}' && *p != '\0') p++;
         }
     }
     
+    lv_obj_t *obj = find_widget(target);
+    
     if (strcmp(action, "set_text") == 0) {
-        lv_obj_t *obj = find_widget(target);
         if (obj) {
             lv_label_set_text(obj, value);
         }
+    } else if (strcmp(action, "set_style") == 0) {
+        if (obj) {
+            uint32_t bg_color = parse_color(&json);
+            lv_obj_set_style_bg_color(obj, lv_color_hex(bg_color), 0);
+        }
     } else if (strcmp(action, "go_home") == 0) {
         app_manager_go_home();
+    } else if (strcmp(action, "set_value") == 0) {
+        if (obj) {
+            lv_slider_set_value(obj, int_value, LV_ANIM_OFF);
+        }
+    } else if (strcmp(action, "set_progress") == 0) {
+        if (obj) {
+            lv_bar_set_value(obj, int_value, LV_ANIM_OFF);
+        }
+    } else if (strcmp(action, "set_checked") == 0) {
+        if (obj) {
+            if (bool_value) {
+                lv_obj_add_state(obj, LV_STATE_CHECKED);
+            } else {
+                lv_obj_clear_state(obj, LV_STATE_CHECKED);
+            }
+        }
+    } else if (strcmp(action, "set_color") == 0) {
+        if (obj && color_str[0] != '\0') {
+            const char *p = color_str;
+            uint32_t col = parse_color(&p);
+            lv_obj_set_style_text_color(obj, lv_color_hex(col), 0);
+        }
+    } else if (strcmp(action, "hide") == 0) {
+        if (obj) {
+            lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+        }
+    } else if (strcmp(action, "show") == 0) {
+        if (obj) {
+            lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
+        }
+    } else if (strcmp(action, "set_enabled") == 0) {
+        if (obj) {
+            if (bool_value) {
+                lv_obj_clear_state(obj, LV_STATE_DISABLED);
+            } else {
+                lv_obj_add_state(obj, LV_STATE_DISABLED);
+            }
+        }
+    }
+}
+
+static void button_delete_cb(lv_event_t *e)
+{
+    lv_obj_t *btn = lv_event_get_target(e);
+    char *command_name = (char *)lv_obj_get_user_data(btn);
+    if (command_name) {
+        heap_caps_free(command_name);
+        lv_obj_set_user_data(btn, NULL);
     }
 }
 
@@ -197,9 +268,19 @@ static void parse_widget(const char **json, lv_obj_t *parent)
     char align_str[32] = "center";
     uint32_t color = 0xFFFFFF;
     uint32_t bg_color = 0x2d2d44;
+    uint32_t accent_color = 0x6c5ce7;
     int width = 100, height = 50;
     int x = 0, y = 0;
     char on_click[32] = {0};
+    int value = 50;
+    int min = 0;
+    int max = 100;
+    bool checked = false;
+    int rows = 4;
+    int cols = 2;
+    int gap = 10;
+    int padding = 20;
+    char src[128] = {0};
     
     while (**json != '}' && **json != '\0') {
         skip_whitespace(json);
@@ -220,6 +301,8 @@ static void parse_widget(const char **json, lv_obj_t *parent)
             color = parse_color(json);
         } else if (strcmp(key, "bg_color") == 0) {
             bg_color = parse_color(json);
+        } else if (strcmp(key, "accent_color") == 0) {
+            accent_color = parse_color(json);
         } else if (strcmp(key, "width") == 0) {
             width = parse_int(json);
         } else if (strcmp(key, "height") == 0) {
@@ -232,6 +315,26 @@ static void parse_widget(const char **json, lv_obj_t *parent)
             parse_string(json, align_str, sizeof(align_str));
         } else if (strcmp(key, "on_click") == 0) {
             parse_string(json, on_click, sizeof(on_click));
+        } else if (strcmp(key, "value") == 0) {
+            value = parse_int(json);
+        } else if (strcmp(key, "min") == 0) {
+            min = parse_int(json);
+        } else if (strcmp(key, "max") == 0) {
+            max = parse_int(json);
+        } else if (strcmp(key, "checked") == 0) {
+            char val[16];
+            parse_string(json, val, sizeof(val));
+            checked = (strcmp(val, "true") == 0);
+        } else if (strcmp(key, "rows") == 0) {
+            rows = parse_int(json);
+        } else if (strcmp(key, "cols") == 0) {
+            cols = parse_int(json);
+        } else if (strcmp(key, "gap") == 0) {
+            gap = parse_int(json);
+        } else if (strcmp(key, "padding") == 0) {
+            padding = parse_int(json);
+        } else if (strcmp(key, "src") == 0) {
+            parse_string(json, src, sizeof(src));
         } else {
             while (**json != ',' && **json != '}' && **json != '\0') (*json)++;
         }
@@ -255,14 +358,93 @@ static void parse_widget(const char **json, lv_obj_t *parent)
         lv_obj_center(label);
         
         if (on_click[0] != '\0') {
-            lv_obj_set_user_data(obj, (void *)strdup(on_click));
-            lv_obj_add_event_cb(obj, button_click_cb, LV_EVENT_CLICKED, NULL);
+            size_t len = strlen(on_click) + 1;
+            char *on_click_copy = (char *)heap_caps_malloc(len, MALLOC_CAP_SPIRAM);
+            if (on_click_copy) {
+                memcpy(on_click_copy, on_click, len);
+                lv_obj_set_user_data(obj, (void *)on_click_copy);
+                lv_obj_add_event_cb(obj, button_click_cb, LV_EVENT_CLICKED, NULL);
+                lv_obj_add_event_cb(obj, button_delete_cb, LV_EVENT_DELETE, NULL);
+            }
         }
     } else if (strcmp(type, "rect") == 0) {
         obj = lv_obj_create(parent);
         lv_obj_set_size(obj, width, height);
         lv_obj_set_style_bg_color(obj, lv_color_hex(bg_color), 0);
         lv_obj_set_style_border_width(obj, 0, 0);
+    } else if (strcmp(type, "grid") == 0) {
+        obj = lv_obj_create(parent);
+        grid_container = obj;
+        lv_obj_set_size(obj, width, height);
+        lv_obj_set_style_bg_color(obj, lv_color_hex(bg_color), 0);
+        lv_obj_set_style_border_width(obj, 2, 0);
+        lv_obj_set_style_border_color(obj, lv_color_hex(0x4a4a6a), 0);
+        
+        grid_cell_size = width / cols;
+        grid_rows = rows;
+        grid_cols = cols;
+        for (int i = 0; i < rows; i++) {
+            for (int j = 0; j < cols; j++) {
+                lv_obj_t *cell = lv_obj_create(obj);
+                lv_obj_set_size(cell, grid_cell_size - gap, grid_cell_size - gap);
+                lv_obj_set_style_bg_color(cell, lv_color_hex(0x252540), 0);
+                lv_obj_set_style_border_width(cell, 1, 0);
+                lv_obj_set_style_border_color(cell, lv_color_hex(0x3a3a5a), 0);
+                lv_obj_align(cell, LV_ALIGN_TOP_LEFT, j * grid_cell_size + gap/2, i * grid_cell_size + gap/2);
+            }
+        }
+    } else if (strcmp(type, "slider") == 0) {
+        obj = lv_slider_create(parent);
+        lv_obj_set_size(obj, width, height);
+        lv_obj_set_style_bg_color(obj, lv_color_hex(bg_color), 0);
+        lv_obj_set_style_bg_color(obj, lv_color_hex(accent_color), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(obj, lv_color_hex(accent_color), LV_PART_KNOB);
+        lv_slider_set_range(obj, min, max);
+        lv_slider_set_value(obj, value, LV_ANIM_OFF);
+    } else if (strcmp(type, "checkbox") == 0) {
+        obj = lv_checkbox_create(parent);
+        lv_checkbox_set_text(obj, text);
+        lv_obj_set_style_text_color(obj, lv_color_hex(color), 0);
+        lv_obj_set_style_bg_color(obj, lv_color_hex(bg_color), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(obj, lv_color_hex(accent_color), LV_PART_INDICATOR | LV_STATE_CHECKED);
+        if (checked) {
+            lv_obj_add_state(obj, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(obj, LV_STATE_CHECKED);
+        }
+        if (on_click[0] != '\0') {
+            size_t len = strlen(on_click) + 1;
+            char *on_click_copy = (char *)heap_caps_malloc(len, MALLOC_CAP_SPIRAM);
+            if (on_click_copy) {
+                memcpy(on_click_copy, on_click, len);
+                lv_obj_set_user_data(obj, (void *)on_click_copy);
+                lv_obj_add_event_cb(obj, button_click_cb, LV_EVENT_CLICKED, NULL);
+            }
+        }
+    } else if (strcmp(type, "input") == 0) {
+        obj = lv_textarea_create(parent);
+        lv_obj_set_size(obj, width, height);
+        lv_obj_set_style_bg_color(obj, lv_color_hex(bg_color), 0);
+        lv_obj_set_style_text_color(obj, lv_color_hex(color), 0);
+        lv_textarea_set_placeholder_text(obj, text);
+    } else if (strcmp(type, "progress") == 0) {
+        obj = lv_bar_create(parent);
+        lv_obj_set_size(obj, width, height);
+        lv_obj_set_style_bg_color(obj, lv_color_hex(bg_color), 0);
+        lv_obj_set_style_bg_color(obj, lv_color_hex(accent_color), LV_PART_INDICATOR);
+        lv_bar_set_range(obj, min, max);
+        lv_bar_set_value(obj, value, LV_ANIM_OFF);
+    } else if (strcmp(type, "flex") == 0) {
+        obj = lv_obj_create(parent);
+        lv_obj_set_size(obj, width, height);
+        lv_obj_set_style_bg_color(obj, lv_color_hex(bg_color), 0);
+        lv_obj_set_style_pad_all(obj, padding, 0);
+        lv_obj_set_layout(obj, LV_LAYOUT_FLEX);
+    } else if (strcmp(type, "container") == 0) {
+        obj = lv_obj_create(parent);
+        lv_obj_set_size(obj, width, height);
+        lv_obj_set_style_bg_color(obj, lv_color_hex(bg_color), 0);
+        lv_obj_set_style_pad_all(obj, padding, 0);
     }
     
     if (obj) {
@@ -322,7 +504,7 @@ static void parse_screen(const char **json, lv_obj_t *scr, char **commands_json)
                     if (*end == '}') brace_count--;
                 }
                 int len = end - start + 1;
-                *commands_json = malloc(len + 1);
+                *commands_json = heap_caps_malloc(len + 1, MALLOC_CAP_SPIRAM);
                 strncpy(*commands_json, start, len);
                 (*commands_json)[len] = '\0';
                 *json = end + 1;
@@ -367,7 +549,7 @@ lv_obj_t *dynamic_app_create_screen(const app_info_t *app)
     size_t len = ftell(f);
     fseek(f, 0, SEEK_SET);
     
-    char *buffer = malloc(len + 1);
+    char *buffer = heap_caps_malloc(len + 1, MALLOC_CAP_SPIRAM);
     if (!buffer) {
         fclose(f);
         ESP_LOGE(TAG, "Memory allocation failed");

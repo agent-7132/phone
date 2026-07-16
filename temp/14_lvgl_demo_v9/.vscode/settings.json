@@ -1,0 +1,13 @@
+{
+  "idf.currentSetup": "D:/esp/Espressif/frameworks/esp-idf-v5.5.4/",
+  "idf.customExtraVars": {},
+  "clangd.path": "D:\\esp\\Espressif\\tools\\esp-clang\\16.0.1-fe4f10a809\\esp-clang\\bin\\clangd.exe",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=e:\\esp32-p4-platform\\examples\\esp-idf\\14_lvgl_demo_v9\\build"
+  ],
+  "idf.openOcdConfigs": [
+    "board/esp32p4-builtin.cfg"
+  ]
+}
