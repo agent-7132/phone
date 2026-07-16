@@ -268,7 +268,7 @@ esp_err_t bt_audio_service_init(void)
         return ESP_FAIL;
     }
 
-    BaseType_t ret = xTaskCreate(audio_stream_task, "bt_audio_stream", 2048, NULL, 12, NULL);
+    BaseType_t ret = xTaskCreatePinnedToCore(audio_stream_task, "bt_audio_stream", 2048, NULL, 12, NULL, 1);
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create audio stream task");
         return ESP_ERR_NO_MEM;

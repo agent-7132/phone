@@ -300,7 +300,7 @@ static void play_song_by_index(int index)
     update_song_list();
     lv_slider_set_value(progress_bar, 0, LV_ANIM_OFF);
 
-    xTaskCreate(play_audio_task, "music_play", PLAY_TASK_STACK_SIZE, NULL, PLAY_TASK_PRIORITY, &play_task_handle);
+    xTaskCreatePinnedToCore(play_audio_task, "music_play", PLAY_TASK_STACK_SIZE, NULL, PLAY_TASK_PRIORITY, &play_task_handle, 1);
 
     ESP_LOGI(TAG, "Playing: %s", song_paths[current_song]);
 }

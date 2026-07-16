@@ -540,18 +540,18 @@ void app_main(void)
         ESP_LOGI(TAG, "Registering background services...");
         
         service_manager_register("alarm", alarm_service_start, alarm_service_stop, 
-                                NULL, NULL, NULL, SERVICE_PRIORITY_HIGH, 4096, NULL);
+                                NULL, NULL, NULL, SERVICE_PRIORITY_HIGH, 4096, SERVICE_CPU_CORE_1, NULL);
         service_manager_set_auto_restart("alarm", true, 3, 5000);
         service_manager_start("alarm");
         
         service_manager_register("sensor", sensor_service_start, sensor_service_stop, 
-                                NULL, NULL, sensor_service_health, SERVICE_PRIORITY_MEDIUM, 4096, NULL);
+                                NULL, NULL, sensor_service_health, SERVICE_PRIORITY_MEDIUM, 4096, SERVICE_CPU_CORE_1, NULL);
         service_manager_set_auto_restart("sensor", true, 5, 3000);
         service_manager_set_health_check("sensor", sensor_service_health, 30000);
         service_manager_start("sensor");
         
         service_manager_register("status", status_service_start, status_service_stop, 
-                                NULL, NULL, NULL, SERVICE_PRIORITY_LOW, 2048, NULL);
+                                NULL, NULL, NULL, SERVICE_PRIORITY_LOW, 2048, SERVICE_CPU_CORE_0, NULL);
         service_manager_start("status");
         
         ESP_LOGI(TAG, "Background services registered");

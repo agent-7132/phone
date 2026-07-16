@@ -228,8 +228,8 @@ esp_err_t ota_manager_start_update(const char *firmware_url)
     }
     strcpy(url_copy, firmware_url);
     
-    BaseType_t ret = xTaskCreate(ota_task, "ota_task", OTA_TASK_STACK_SIZE, 
-                                 url_copy, 8, NULL);
+    BaseType_t ret = xTaskCreatePinnedToCore(ota_task, "ota_task", OTA_TASK_STACK_SIZE, 
+                                 url_copy, 8, NULL, 1);
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create OTA task");
         heap_caps_free(url_copy);

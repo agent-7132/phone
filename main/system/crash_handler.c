@@ -200,7 +200,7 @@ void crash_handler_watchdog_enable(uint32_t timeout_ms)
     watchdog_timeout_ms = timeout_ms;
     last_watchdog_feed = esp_timer_get_time() / 1000;
     
-    xTaskCreate(crash_handler_task, "crash_watchdog", 4096, NULL, 10, NULL);
+    xTaskCreatePinnedToCore(crash_handler_task, "crash_watchdog", 4096, NULL, 10, NULL, 1);
     
     ESP_LOGI(TAG, "Watchdog enabled with timeout: %lu ms", timeout_ms);
 }

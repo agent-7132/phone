@@ -205,8 +205,8 @@ esp_err_t app_downloader_start(const char *url, const char *app_name,
     }
     strcpy(url_copy, url);
 
-    BaseType_t ret = xTaskCreate(download_task, "app_download", DOWNLOAD_TASK_STACK_SIZE,
-                                 url_copy, 4, NULL);
+    BaseType_t ret = xTaskCreatePinnedToCore(download_task, "app_download", DOWNLOAD_TASK_STACK_SIZE,
+                                 url_copy, 4, NULL, 1);
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create download task");
         heap_caps_free(url_copy);

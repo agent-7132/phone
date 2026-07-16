@@ -29,6 +29,12 @@ typedef enum {
     SERVICE_PRIORITY_CRITICAL = 15
 } service_priority_t;
 
+typedef enum {
+    SERVICE_CPU_CORE_0 = 0,
+    SERVICE_CPU_CORE_1 = 1,
+    SERVICE_CPU_CORE_ANY = tskNO_AFFINITY
+} service_cpu_core_t;
+
 typedef struct {
     char name[32];
     esp_err_t (*start)(void *arg);
@@ -41,6 +47,7 @@ typedef struct {
     service_priority_t priority;
     TaskHandle_t task_handle;
     size_t stack_size;
+    service_cpu_core_t core_id;
     
     bool auto_restart;
     int restart_count;
@@ -73,6 +80,7 @@ esp_err_t service_manager_register(const char *name,
                                    bool (*health_check)(void *arg),
                                    service_priority_t priority, 
                                    size_t stack_size,
+                                   service_cpu_core_t core_id,
                                    void *arg);
 
 esp_err_t service_manager_unregister(const char *name);

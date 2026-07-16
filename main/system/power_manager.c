@@ -109,8 +109,8 @@ esp_err_t power_manager_init(void)
     ESP_LOGI(TAG, "Auto sleep timeout: %ds (min:%ds, max:%ds)", 
              s_auto_sleep_timeout, AUTO_SLEEP_MIN_TIMEOUT_S, AUTO_SLEEP_MAX_TIMEOUT_S);
     
-    BaseType_t task_ret = xTaskCreate(auto_sleep_task, "auto_sleep", 
-                                     POWER_MONITOR_STACK_SIZE, NULL, 3, &s_auto_sleep_task);
+    BaseType_t task_ret = xTaskCreatePinnedToCore(auto_sleep_task, "auto_sleep", 
+                                     POWER_MONITOR_STACK_SIZE, NULL, 3, &s_auto_sleep_task, 1);
     if (task_ret != pdPASS) {
         ESP_LOGW(TAG, "Failed to create auto sleep task");
     }

@@ -240,7 +240,7 @@ static void play_video_by_index(int index)
     lv_slider_set_value(progress_bar, 0, LV_ANIM_OFF);
     lv_slider_set_range(progress_bar, 0, 100);
 
-    xTaskCreate(play_video_task, "video_play", 4096, NULL, 5, &play_task_handle);
+    xTaskCreatePinnedToCore(play_video_task, "video_play", 4096, NULL, 5, &play_task_handle, 1);
 
     ESP_LOGI(TAG, "Playing video: %s", video_paths[current_video]);
 }

@@ -93,8 +93,8 @@ esp_err_t watchdog_manager_start(uint32_t timeout_ms_param)
     
     running = true;
     
-    BaseType_t task_ret = xTaskCreate(watchdog_feed_task, "wd_feed", 2048, 
-                                      NULL, 15, &feed_task);
+    BaseType_t task_ret = xTaskCreatePinnedToCore(watchdog_feed_task, "wd_feed", 2048, 
+                                      NULL, 15, &feed_task, 1);
     if (task_ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create feed task");
         running = false;

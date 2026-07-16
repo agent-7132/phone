@@ -119,7 +119,7 @@ static void start_recording(void)
     
     lv_label_set_text(status_label, "Recording...");
     
-    xTaskCreate(record_video_task, "video_record", 2048, NULL, 5, &record_task_handle);
+    xTaskCreatePinnedToCore(record_video_task, "video_record", 2048, NULL, 5, &record_task_handle, 1);
     
     ESP_LOGI(TAG, "Video recording started: %s", filename);
 }

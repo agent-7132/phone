@@ -997,7 +997,7 @@ esp_err_t bsp_usb_host_start(bsp_usb_host_power_mode_t mode, bool limit_500mA)
     };
     BSP_ERROR_CHECK_RETURN_ERR(usb_host_install(&host_config));
 
-    if (xTaskCreate(usb_lib_task, "usb_lib", 4096, NULL, 10, &usb_host_task) != pdTRUE)
+    if (xTaskCreatePinnedToCore(usb_lib_task, "usb_lib", 4096, NULL, 10, &usb_host_task, 1) != pdTRUE)
     {
         ESP_LOGE(TAG, "Creating USB host lib task failed");
         abort();

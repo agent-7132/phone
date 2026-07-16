@@ -577,6 +577,7 @@ esp_err_t service_manager_register(const char *name,
                                    bool (*health_check)(void *arg),
                                    service_priority_t priority, 
                                    size_t stack_size,
+                                   service_cpu_core_t core_id,
                                    void *arg);
 esp_err_t service_manager_unregister(const char *name);
 esp_err_t service_manager_start(const char *name);
