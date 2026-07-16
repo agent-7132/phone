@@ -55,6 +55,7 @@
 #include "system/watchdog_manager.h"
 #include "system/memory_pool.h"
 #include "system/file_cache.h"
+#include "system/usb_host_manager.h"
 #include "esp_heap_caps.h"
 
 static const char *TAG = "PHONE_SYSTEM";
@@ -540,18 +541,18 @@ void app_main(void)
         ESP_LOGI(TAG, "Registering background services...");
         
         service_manager_register("alarm", alarm_service_start, alarm_service_stop, 
-                                NULL, NULL, NULL, SERVICE_PRIORITY_HIGH, 4096, NULL);
+                                NULL, NULL, NULL, SERVICE_PRIORITY_HIGH, 4096, SERVICE_CPU_CORE_1, NULL);
         service_manager_set_auto_restart("alarm", true, 3, 5000);
         service_manager_start("alarm");
         
         service_manager_register("sensor", sensor_service_start, sensor_service_stop, 
-                                NULL, NULL, sensor_service_health, SERVICE_PRIORITY_MEDIUM, 4096, NULL);
+                                NULL, NULL, sensor_service_health, SERVICE_PRIORITY_MEDIUM, 4096, SERVICE_CPU_CORE_1, NULL);
         service_manager_set_auto_restart("sensor", true, 5, 3000);
         service_manager_set_health_check("sensor", sensor_service_health, 30000);
         service_manager_start("sensor");
         
         service_manager_register("status", status_service_start, status_service_stop, 
-                                NULL, NULL, NULL, SERVICE_PRIORITY_LOW, 2048, NULL);
+                                NULL, NULL, NULL, SERVICE_PRIORITY_LOW, 2048, SERVICE_CPU_CORE_0, NULL);
         service_manager_start("status");
         
         ESP_LOGI(TAG, "Background services registered");
@@ -587,6 +588,7 @@ void app_main(void)
         memory_pool_create("widgets", 256, 32);
         memory_pool_create("strings", 128, 64);
         memory_pool_create("buffers", 1024, 16);
+        memory_pool_create_dma("dma_buffers", 4096, 8);
         ESP_LOGI(TAG, "Memory pool manager initialized");
     } else {
         ESP_LOGW(TAG, "Memory pool manager init failed: %s", esp_err_to_name(mp_ret));
@@ -598,6 +600,25 @@ void app_main(void)
         ESP_LOGI(TAG, "File cache initialized (64KB PSRAM)");
     } else {
         ESP_LOGW(TAG, "File cache init failed: %s", esp_err_to_name(fc_ret));
+    }
+    
+    ESP_LOGI(TAG, "Initializing USB host manager...");
+    esp_err_t usb_ret = usb_host_manager_init();
+    if (usb_ret == ESP_OK) {
+        ESP_LOGI(TAG, "USB host manager initialized");
+    } else {
+        ESP_LOGW(TAG, "USB host manager init failed: %s", esp_err_to_name(usb_ret));
+    }
+    
+    ESP_LOGI(TAG, "Checking OTA rollback status...");
+    if (ota_manager_has_pending_update()) {
+        ESP_LOGI(TAG, "Pending OTA update detected, marking as valid after successful boot");
+        esp_err_t ota_valid_ret = ota_manager_mark_app_valid();
+        if (ota_valid_ret == ESP_OK) {
+            ESP_LOGI(TAG, "OTA update marked as valid");
+        } else {
+            ESP_LOGE(TAG, "Failed to mark OTA valid: %s", esp_err_to_name(ota_valid_ret));
+        }
     }
     
     ESP_LOGI(TAG, "==================== SYSTEM READY ====================");

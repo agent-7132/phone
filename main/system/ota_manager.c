@@ -228,8 +228,8 @@ esp_err_t ota_manager_start_update(const char *firmware_url)
     }
     strcpy(url_copy, firmware_url);
     
-    BaseType_t ret = xTaskCreate(ota_task, "ota_task", OTA_TASK_STACK_SIZE, 
-                                 url_copy, 8, NULL);
+    BaseType_t ret = xTaskCreatePinnedToCore(ota_task, "ota_task", OTA_TASK_STACK_SIZE, 
+                                 url_copy, 8, NULL, 1);
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create OTA task");
         heap_caps_free(url_copy);
@@ -263,4 +263,37 @@ void ota_manager_reboot(void)
 {
     ESP_LOGI(TAG, "Rebooting to apply new firmware...");
     esp_restart();
+}
+
+esp_err_t ota_manager_mark_app_valid(void)
+{
+    ESP_LOGI(TAG, "Marking app as valid, canceling rollback");
+    esp_err_t ret = esp_ota_mark_app_valid_cancel_rollback();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to mark app valid: %s", esp_err_to_name(ret));
+    }
+    return ret;
+}
+
+esp_err_t ota_manager_mark_app_invalid_and_reboot(void)
+{
+    ESP_LOGI(TAG, "Marking app as invalid, triggering rollback and reboot");
+    esp_err_t ret = esp_ota_mark_app_invalid_rollback_and_reboot();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to mark app invalid: %s", esp_err_to_name(ret));
+    }
+    return ret;
+}
+
+bool ota_manager_has_pending_update(void)
+{
+    esp_ota_img_states_t state;
+    esp_err_t ret = esp_ota_get_state_partition(esp_ota_get_running_partition(), &state);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get OTA state: %s", esp_err_to_name(ret));
+        return false;
+    }
+    bool pending = (state == ESP_OTA_IMG_PENDING_VERIFY);
+    ESP_LOGI(TAG, "OTA pending update: %s", pending ? "yes" : "no");
+    return pending;
 }

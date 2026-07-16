@@ -102,6 +102,7 @@ esp_err_t service_manager_register(const char *name,
                                    bool (*health_check)(void *arg),
                                    service_priority_t priority, 
                                    size_t stack_size,
+                                   service_cpu_core_t core_id,
                                    void *arg)
 {
     if (!name || !start) {
@@ -136,6 +137,7 @@ esp_err_t service_manager_register(const char *name,
     service->state = SERVICE_STATE_STOPPED;
     service->priority = priority;
     service->stack_size = stack_size;
+    service->core_id = core_id;
     
     service->auto_restart = false;
     service->restart_count = 0;
@@ -224,8 +226,8 @@ esp_err_t service_manager_start(const char *name)
     
     xSemaphoreGiveRecursive(service_mutex);
     
-    BaseType_t ret = xTaskCreate(service_task_wrapper, name, service->stack_size, 
-                                 service, service->priority, &service->task_handle);
+    BaseType_t ret = xTaskCreatePinnedToCore(service_task_wrapper, name, service->stack_size, 
+                                 service, service->priority, &service->task_handle, service->core_id);
     
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create service task: %s", name);
@@ -407,8 +409,10 @@ void service_manager_dump_services(void)
             case SERVICE_STATE_STARTING: state_str = "STARTING"; break;
         }
         
-        ESP_LOGI(TAG, "[%d] %s - %s (priority=%d, stack=%u)", 
-                 i, services[i].name, state_str, services[i].priority, services[i].stack_size);
+        const char *core_str = services[i].core_id == SERVICE_CPU_CORE_0 ? "core0" : 
+                              (services[i].core_id == SERVICE_CPU_CORE_1 ? "core1" : "any");
+        ESP_LOGI(TAG, "[%d] %s - %s (priority=%d, stack=%u, core=%s)", 
+                 i, services[i].name, state_str, services[i].priority, services[i].stack_size, core_str);
         
         if (services[i].auto_restart) {
             ESP_LOGI(TAG, "  Auto-restart: ON (max=%d, delay=%lu ms, current=%d)", 

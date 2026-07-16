@@ -9,6 +9,7 @@
 #include "ui_animation.h"
 #include "ui_feedback.h"
 #include "ui_utils.h"
+#include "settings_manager.h"
 #include "esp_log.h"
 
 static const char *TAG = "SETTINGS_APP";
@@ -36,7 +37,7 @@ typedef enum {
 static void brightness_changed(lv_event_t *e)
 {
     int brightness = lv_slider_get_value(brightness_slider);
-    esp_err_t ret = bsp_display_brightness_set(brightness);
+    esp_err_t ret = settings_manager_set_brightness(brightness);
     
     if (ret == ESP_OK) {
         char bright_str[32];
@@ -212,12 +213,6 @@ static void search_input_cb(lv_event_t *e)
     }
 }
 
-static void back_button_cb(lv_event_t *e)
-{
-    (void)e;
-    app_manager_go_home();
-}
-
 static lv_obj_t *create_settings_card(lv_obj_t *parent, const char *title, int y_pos)
 {
     lv_obj_t *card = lv_obj_create(parent);
@@ -280,7 +275,7 @@ lv_obj_t *settings_app_create(void)
 
     status_bar_create(scr);
 
-    lv_obj_t *title = ui_utils_create_title(scr, "Settings");
+    ui_utils_create_title(scr, "Settings");
 
     search_input = lv_textarea_create(scr);
     lv_obj_set_size(search_input, 400, 45);
@@ -327,10 +322,12 @@ lv_obj_t *settings_app_create(void)
     lv_obj_set_style_text_color(bright_text, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(bright_text, LV_ALIGN_TOP_LEFT, 55, 10);
     
+    int current_brightness = settings_manager_get_brightness();
+    
     brightness_slider = lv_slider_create(brightness_row);
     lv_obj_set_size(brightness_slider, 220, 6);
     lv_slider_set_range(brightness_slider, 0, 100);
-    lv_slider_set_value(brightness_slider, 80, LV_ANIM_OFF);
+    lv_slider_set_value(brightness_slider, current_brightness, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(brightness_slider, lv_color_hex(0x3a3a5a), 0);
     lv_obj_set_style_bg_color(brightness_slider, lv_color_hex(0x4CAF50), LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(brightness_slider, lv_color_hex(0x4CAF50), LV_PART_KNOB);
@@ -340,7 +337,9 @@ lv_obj_t *settings_app_create(void)
     lv_obj_add_event_cb(brightness_slider, brightness_changed, LV_EVENT_VALUE_CHANGED, NULL);
     
     brightness_label = lv_label_create(brightness_row);
-    lv_label_set_text(brightness_label, "80%");
+    char bright_str[8];
+    snprintf(bright_str, sizeof(bright_str), "%d%%", current_brightness);
+    lv_label_set_text(brightness_label, bright_str);
     lv_obj_set_style_text_font(brightness_label, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(brightness_label, lv_color_hex(0x4CAF50), 0);
     lv_obj_align(brightness_label, LV_ALIGN_BOTTOM_RIGHT, -10, -10);

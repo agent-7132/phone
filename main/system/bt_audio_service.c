@@ -9,6 +9,7 @@
 #include "freertos/queue.h"
 #include "host/ble_hs_mbuf.h"
 #include "esp_heap_caps.h"
+
 #include <string.h>
 
 static const char *TAG = "BT_AUDIO_SERVICE";
@@ -21,6 +22,7 @@ static const char *TAG = "BT_AUDIO_SERVICE";
 #define MAX_AUDIO_PACKET_SIZE 120
 #define AUDIO_QUEUE_SIZE 64
 #define MAX_BUFFER_SIZE 32768
+#define MIX_BUFFER_SIZE 2048
 
 typedef struct {
     uint8_t data[MAX_AUDIO_PACKET_SIZE];
@@ -268,7 +270,7 @@ esp_err_t bt_audio_service_init(void)
         return ESP_FAIL;
     }
 
-    BaseType_t ret = xTaskCreate(audio_stream_task, "bt_audio_stream", 2048, NULL, 12, NULL);
+    BaseType_t ret = xTaskCreatePinnedToCore(audio_stream_task, "bt_audio_stream", 2048, NULL, 12, NULL, 1);
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create audio stream task");
         return ESP_ERR_NO_MEM;

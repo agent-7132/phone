@@ -1553,7 +1553,7 @@ lv_obj_t *reader_app_create(void)
     init_audio();
     scan_books();
 
-    xTaskCreate(auto_scroll_task, "auto_scroll", 2048, NULL, 5, NULL);
+    xTaskCreatePinnedToCore(auto_scroll_task, "auto_scroll", 2048, NULL, 5, NULL, 0);
 
     create_list_ui();
     ui_animation_fade(scr, true, 300);

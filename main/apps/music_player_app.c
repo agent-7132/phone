@@ -7,12 +7,16 @@
 #include "permission_manager.h"
 #include "ui_animation.h"
 #include "ui_feedback.h"
+#include "settings_manager.h"
 #include "esp_log.h"
+#include "dsps_mul.h"
+#include "dsps_fft2r.h"
 #include <dirent.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -20,9 +24,11 @@ static const char *TAG = "MUSIC_PLAYER";
 
 #define MAX_SONGS 50
 #define MAX_PATH_LEN 512
-#define AUDIO_BUFFER_SIZE 512
+#define AUDIO_BUFFER_SIZE 1024
 #define PLAY_TASK_STACK_SIZE 4096
 #define PLAY_TASK_PRIORITY 5
+#define FFT_SIZE 256
+#define FFT_BINS 128
 
 typedef struct {
     uint16_t audio_format;
@@ -42,6 +48,7 @@ static lv_obj_t *time_label = NULL;
 static lv_obj_t *album_cover = NULL;
 static lv_obj_t *artist_label = NULL;
 static lv_obj_t *play_icon = NULL;
+static lv_obj_t *spectrum_bars[FFT_BINS];
 static esp_codec_dev_handle_t speaker = NULL;
 static FILE *audio_file = NULL;
 static TaskHandle_t play_task_handle = NULL;
@@ -52,7 +59,12 @@ static int song_count = 0;
 static int current_song = -1;
 static bool is_playing = false;
 static int volume = 50;
+static lv_obj_t *volume_slider_obj = NULL;
 static bool use_bluetooth_audio = false;
+
+static float audio_buffer_float[AUDIO_BUFFER_SIZE / 2];
+static float fft_input[FFT_SIZE * 2];
+static float spectrum_magnitude[FFT_BINS];
 
 static bool is_music_file(const char *filename)
 {
@@ -155,8 +167,9 @@ static void init_audio(void)
 
     speaker = bsp_audio_codec_speaker_init();
     if (speaker) {
+        volume = settings_manager_get_volume();
         esp_codec_dev_set_out_vol(speaker, volume);
-        ESP_LOGI(TAG, "Audio initialized");
+        ESP_LOGI(TAG, "Audio initialized with volume %d%%", volume);
     } else {
         ESP_LOGE(TAG, "Speaker init failed");
     }
@@ -215,6 +228,47 @@ static bool parse_wav_header(FILE *file, wav_header_t *header)
     return true;
 }
 
+static void apply_volume_dsp(float *samples, int count, int vol_percent)
+{
+    float vol_factor = (float)vol_percent / 100.0f;
+    dsps_mul_f32_ansi(samples, &vol_factor, samples, count, 1, 0, 1);
+}
+
+static void compute_fft(float *input, int count)
+{
+    for (int i = 0; i < count && i < FFT_SIZE; i++) {
+        fft_input[i * 2] = input[i];
+        fft_input[i * 2 + 1] = 0.0f;
+    }
+    
+    dsps_fft2r_fc32_ansi(fft_input, FFT_SIZE);
+    dsps_bit_rev_fc32_ansi(fft_input, FFT_SIZE);
+    
+    for (int i = 0; i < FFT_BINS; i++) {
+        float re = fft_input[i * 2];
+        float im = fft_input[i * 2 + 1];
+        spectrum_magnitude[i] = sqrtf(re * re + im * im);
+    }
+}
+
+static void update_spectrum_display(void)
+{
+    if (!is_playing) return;
+
+    float max_val = 0;
+    for (int i = 0; i < FFT_BINS; i++) {
+        if (spectrum_magnitude[i] > max_val) max_val = spectrum_magnitude[i];
+    }
+
+    for (int i = 0; i < FFT_BINS; i++) {
+        if (!spectrum_bars[i]) continue;
+        float normalized = spectrum_magnitude[i] / (max_val > 0 ? max_val : 1);
+        int height = (int)(normalized * 80);
+        height = height < 2 ? 2 : height;
+        lv_obj_set_height(spectrum_bars[i], height);
+    }
+}
+
 static void play_audio_task(void *arg)
 {
     (void)arg;
@@ -248,6 +302,26 @@ static void play_audio_task(void *arg)
             break;
         }
 
+        if (wav_header.bits_per_sample == 16) {
+            int16_t *pcm16 = (int16_t *)buffer;
+            int sample_count = bytes_read / 2;
+            
+            for (int i = 0; i < sample_count && i < AUDIO_BUFFER_SIZE / 2; i++) {
+                audio_buffer_float[i] = (float)pcm16[i] / 32768.0f;
+            }
+
+            apply_volume_dsp(audio_buffer_float, sample_count, volume);
+
+            if (sample_count >= FFT_SIZE) {
+                compute_fft(audio_buffer_float, FFT_SIZE);
+                update_spectrum_display();
+            }
+
+            for (int i = 0; i < sample_count && i < AUDIO_BUFFER_SIZE / 2; i++) {
+                pcm16[i] = (int16_t)(audio_buffer_float[i] * 32768.0f);
+            }
+        }
+
         if (use_bluetooth_audio && bt_audio_service_is_streaming()) {
             bt_audio_service_send_data(buffer, bytes_read);
         } else if (speaker) {
@@ -257,7 +331,7 @@ static void play_audio_task(void *arg)
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 
     if (audio_file) {
@@ -300,7 +374,7 @@ static void play_song_by_index(int index)
     update_song_list();
     lv_slider_set_value(progress_bar, 0, LV_ANIM_OFF);
 
-    xTaskCreate(play_audio_task, "music_play", PLAY_TASK_STACK_SIZE, NULL, PLAY_TASK_PRIORITY, &play_task_handle);
+    xTaskCreatePinnedToCore(play_audio_task, "music_play", PLAY_TASK_STACK_SIZE, NULL, PLAY_TASK_PRIORITY, &play_task_handle, 1);
 
     ESP_LOGI(TAG, "Playing: %s", song_paths[current_song]);
 }
@@ -361,9 +435,7 @@ static void next_song(lv_event_t *e)
 static void volume_changed(lv_event_t *e)
 {
     volume = lv_slider_get_value((lv_obj_t *)lv_event_get_target(e));
-    if (speaker) {
-        esp_codec_dev_set_out_vol(speaker, volume);
-    }
+    settings_manager_set_volume(volume);
 
     char vol_str[32];
     snprintf(vol_str, sizeof(vol_str), "%d%%", volume);
@@ -453,16 +525,36 @@ lv_obj_t *music_player_app_create(void)
     lv_obj_set_style_text_color(status_label, lv_color_hex(0xAAAAAA), 0);
     lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 360);
 
+    lv_obj_t *spectrum_container = lv_obj_create(scr);
+    lv_obj_set_size(spectrum_container, 440, 90);
+    lv_obj_set_style_bg_color(spectrum_container, lv_color_hex(0x1a1a1a), 0);
+    lv_obj_set_style_border_width(spectrum_container, 0, 0);
+    lv_obj_set_style_radius(spectrum_container, 8, 0);
+    lv_obj_align(spectrum_container, LV_ALIGN_TOP_MID, 0, 390);
+
+    int bar_width = 3;
+    int bar_gap = 1;
+    int start_x = (440 - (FFT_BINS * (bar_width + bar_gap) - bar_gap)) / 2;
+    
+    for (int i = 0; i < FFT_BINS; i++) {
+        spectrum_bars[i] = lv_obj_create(spectrum_container);
+        lv_obj_set_size(spectrum_bars[i], bar_width, 2);
+        lv_obj_set_style_bg_color(spectrum_bars[i], lv_color_hex(0x4CAF50), 0);
+        lv_obj_set_style_border_width(spectrum_bars[i], 0, 0);
+        lv_obj_set_style_radius(spectrum_bars[i], 1, 0);
+        lv_obj_align(spectrum_bars[i], LV_ALIGN_BOTTOM_LEFT, start_x + i * (bar_width + bar_gap), 0);
+    }
+
     lv_obj_t *list_container = lv_obj_create(scr);
-    lv_obj_set_size(list_container, 440, 220);
+    lv_obj_set_size(list_container, 440, 140);
     lv_obj_set_style_bg_color(list_container, lv_color_hex(0x252540), 0);
     lv_obj_set_style_border_width(list_container, 1, 0);
     lv_obj_set_style_border_color(list_container, lv_color_hex(0x3a3a5a), 0);
     lv_obj_set_style_radius(list_container, 12, 0);
-    lv_obj_align(list_container, LV_ALIGN_TOP_MID, 0, 395);
+    lv_obj_align(list_container, LV_ALIGN_TOP_MID, 0, 495);
 
     song_list = lv_list_create(list_container);
-    lv_obj_set_size(song_list, 420, 200);
+    lv_obj_set_size(song_list, 420, 120);
     lv_obj_align(song_list, LV_ALIGN_CENTER, 0, 0);
 
     progress_bar = lv_slider_create(scr);
@@ -537,17 +629,17 @@ lv_obj_t *music_player_app_create(void)
     lv_obj_set_style_text_color(next_label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(next_label);
 
-    lv_obj_t *volume_slider = lv_slider_create(scr);
-    lv_obj_set_size(volume_slider, 100, 4);
-    lv_slider_set_range(volume_slider, 0, 100);
-    lv_slider_set_value(volume_slider, volume, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(volume_slider, lv_color_hex(0x3a3a5a), 0);
-    lv_obj_set_style_bg_color(volume_slider, lv_color_hex(0x4CAF50), LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(volume_slider, lv_color_hex(0x4CAF50), LV_PART_KNOB);
-    lv_obj_set_style_border_width(volume_slider, 0, 0);
-    lv_obj_set_style_radius(volume_slider, 2, 0);
-    lv_obj_align(volume_slider, LV_ALIGN_BOTTOM_RIGHT, -80, -60);
-    lv_obj_add_event_cb(volume_slider, volume_changed, LV_EVENT_VALUE_CHANGED, NULL);
+    volume_slider_obj = lv_slider_create(scr);
+    lv_obj_set_size(volume_slider_obj, 100, 4);
+    lv_slider_set_range(volume_slider_obj, 0, 100);
+    lv_slider_set_value(volume_slider_obj, volume, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(volume_slider_obj, lv_color_hex(0x3a3a5a), 0);
+    lv_obj_set_style_bg_color(volume_slider_obj, lv_color_hex(0x4CAF50), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(volume_slider_obj, lv_color_hex(0x4CAF50), LV_PART_KNOB);
+    lv_obj_set_style_border_width(volume_slider_obj, 0, 0);
+    lv_obj_set_style_radius(volume_slider_obj, 2, 0);
+    lv_obj_align(volume_slider_obj, LV_ALIGN_BOTTOM_RIGHT, -80, -60);
+    lv_obj_add_event_cb(volume_slider_obj, volume_changed, LV_EVENT_VALUE_CHANGED, NULL);
 
     lv_obj_t *vol_icon = lv_label_create(scr);
     lv_label_set_text(vol_icon, "🔊");
@@ -591,6 +683,6 @@ lv_obj_t *music_player_app_create(void)
     
     ui_animation_bounce(scr, true, 400);
 
-    ESP_LOGI(TAG, "Music player app created with modern design");
+    ESP_LOGI(TAG, "Music player app created with ESP-DSP optimization");
     return scr;
 }

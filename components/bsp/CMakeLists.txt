@@ -7,9 +7,9 @@ else()
 endif()
 
 idf_component_register(
-    SRCS "esp32_p4_platform.c" "../bsp_st7102/bsp.c"
-    INCLUDE_DIRS "include" "../bsp_st7102/include"
+    SRCS "bsp_camera.c" "esp32_p4_platform.c" "../bsp_st7102/bsp.c"
+    INCLUDE_DIRS "include" "../bsp_st7102/include" "."
     PRIV_INCLUDE_DIRS "priv_include"
     REQUIRES ${REQ} fatfs
-    PRIV_REQUIRES ${PRIV_REQ} esp_lcd spiffs esp_psram esp_lvgl_port esp_lcd_st7102 esp_lcd_touch_st7123
+    PRIV_REQUIRES ${PRIV_REQ} esp_lcd spiffs esp_psram esp_lvgl_port esp_lcd_st7102 esp_lcd_touch_st7123 esp_driver_cam
 )

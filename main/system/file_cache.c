@@ -7,11 +7,19 @@
 
 static const char *TAG = "FILE_CACHE";
 
+#define ADAPTIVE_HIT_RATE_LOW_THRESHOLD 40
+#define ADAPTIVE_HIT_RATE_HIGH_THRESHOLD 70
+#define ADAPTIVE_DECAY_INTERVAL_MS 5000
+#define ADAPTIVE_RECENCY_WEIGHT 0.3
+#define ADAPTIVE_FREQUENCY_WEIGHT 0.7
+
 static file_cache_entry_t s_cache[FILE_CACHE_MAX_ENTRIES] = {0};
 static size_t s_max_cache_size = 0;
 static size_t s_current_cache_size = 0;
 static size_t s_hits = 0;
 static size_t s_misses = 0;
+static file_cache_policy_t s_policy = FILE_CACHE_POLICY_ADAPTIVE;
+static uint32_t s_last_decay_time = 0;
 
 static int find_entry(const char *path)
 {
@@ -35,10 +43,10 @@ static int find_empty_entry(void)
 
 static int find_lru_entry(void)
 {
-    int lru_index = 0;
-    uint32_t oldest_time = s_cache[0].last_access_time;
+    int lru_index = -1;
+    uint32_t oldest_time = UINT32_MAX;
     
-    for (int i = 1; i < FILE_CACHE_MAX_ENTRIES; i++) {
+    for (int i = 0; i < FILE_CACHE_MAX_ENTRIES; i++) {
         if (s_cache[i].valid && s_cache[i].last_access_time < oldest_time) {
             oldest_time = s_cache[i].last_access_time;
             lru_index = i;
@@ -46,6 +54,90 @@ static int find_lru_entry(void)
     }
     
     return lru_index;
+}
+
+static int find_lfu_entry(void)
+{
+    int lfu_index = -1;
+    size_t min_count = SIZE_MAX;
+    
+    for (int i = 0; i < FILE_CACHE_MAX_ENTRIES; i++) {
+        if (s_cache[i].valid && s_cache[i].access_count < min_count) {
+            min_count = s_cache[i].access_count;
+            lfu_index = i;
+        }
+    }
+    
+    return lfu_index;
+}
+
+static float calculate_adaptive_score(int index)
+{
+    if (!s_cache[index].valid) {
+        return -1.0f;
+    }
+    
+    uint32_t now = esp_timer_get_time();
+    uint32_t age_ms = (now - s_cache[index].last_access_time) / 1000;
+    
+    float recency_score = age_ms < 1000 ? 1.0f :
+                          age_ms < 5000 ? 0.7f :
+                          age_ms < 30000 ? 0.3f : 0.1f;
+    
+    float frequency_score = s_cache[index].access_count > 0 ? 
+                           (float)s_cache[index].access_count / 10.0f : 0.0f;
+    frequency_score = (frequency_score > 1.0f) ? 1.0f : frequency_score;
+    
+    float hit_rate = s_hits + s_misses > 0 ? 
+                     (float)s_hits / (s_hits + s_misses) * 100 : 50.0f;
+    
+    float recency_weight, frequency_weight;
+    if (hit_rate < ADAPTIVE_HIT_RATE_LOW_THRESHOLD) {
+        recency_weight = 0.1f;
+        frequency_weight = 0.9f;
+    } else if (hit_rate > ADAPTIVE_HIT_RATE_HIGH_THRESHOLD) {
+        recency_weight = 0.6f;
+        frequency_weight = 0.4f;
+    } else {
+        recency_weight = ADAPTIVE_RECENCY_WEIGHT;
+        frequency_weight = ADAPTIVE_FREQUENCY_WEIGHT;
+    }
+    
+    return recency_score * recency_weight + frequency_score * frequency_weight;
+}
+
+static int find_adaptive_entry(void)
+{
+    int evict_index = -1;
+    float min_score = FLT_MAX;
+    
+    for (int i = 0; i < FILE_CACHE_MAX_ENTRIES; i++) {
+        if (s_cache[i].valid) {
+            float score = calculate_adaptive_score(i);
+            if (score < min_score) {
+                min_score = score;
+                evict_index = i;
+            }
+        }
+    }
+    
+    return evict_index;
+}
+
+static void decay_access_counts(void)
+{
+    uint32_t now = esp_timer_get_time();
+    if ((now - s_last_decay_time) / 1000 < ADAPTIVE_DECAY_INTERVAL_MS) {
+        return;
+    }
+    
+    s_last_decay_time = now;
+    
+    for (int i = 0; i < FILE_CACHE_MAX_ENTRIES; i++) {
+        if (s_cache[i].valid && s_cache[i].access_count > 0) {
+            s_cache[i].access_count = (s_cache[i].access_count * 3) / 4;
+        }
+    }
 }
 
 static void free_entry(int index)
@@ -57,20 +149,36 @@ static void free_entry(int index)
         s_cache[index].data = NULL;
         s_cache[index].size = 0;
         s_cache[index].access_count = 0;
+        s_cache[index].last_access_time = 0;
+        s_cache[index].creation_time = 0;
     }
 }
 
 static esp_err_t evict_entries(size_t required_size)
 {
     while (s_current_cache_size + required_size > s_max_cache_size) {
-        int lru_index = find_lru_entry();
-        if (lru_index < 0) {
+        int evict_index;
+        switch (s_policy) {
+            case FILE_CACHE_POLICY_LRU:
+                evict_index = find_lru_entry();
+                break;
+            case FILE_CACHE_POLICY_LFU:
+                evict_index = find_lfu_entry();
+                break;
+            case FILE_CACHE_POLICY_ADAPTIVE:
+            default:
+                evict_index = find_adaptive_entry();
+                break;
+        }
+        
+        if (evict_index < 0) {
             ESP_LOGE(TAG, "No cache entry to evict");
             return ESP_ERR_NO_MEM;
         }
         
-        ESP_LOGD(TAG, "Evicting cache entry: %s (size: %zu)", s_cache[lru_index].path, s_cache[lru_index].size);
-        free_entry(lru_index);
+        ESP_LOGD(TAG, "Evicting cache entry: %s (size: %zu, policy: %d)", 
+                 s_cache[evict_index].path, s_cache[evict_index].size, s_policy);
+        free_entry(evict_index);
     }
     
     return ESP_OK;
@@ -78,17 +186,38 @@ static esp_err_t evict_entries(size_t required_size)
 
 esp_err_t file_cache_init(size_t max_cache_size)
 {
-    ESP_LOGI(TAG, "Initializing file cache with max size: %zu bytes", max_cache_size);
+    ESP_LOGI(TAG, "Initializing file cache with max size: %zu bytes, policy: ADAPTIVE", max_cache_size);
     
     s_max_cache_size = max_cache_size;
     s_current_cache_size = 0;
     s_hits = 0;
     s_misses = 0;
+    s_policy = FILE_CACHE_POLICY_ADAPTIVE;
+    s_last_decay_time = esp_timer_get_time();
     
     memset(s_cache, 0, sizeof(s_cache));
     
     ESP_LOGI(TAG, "File cache initialized");
     return ESP_OK;
+}
+
+esp_err_t file_cache_set_policy(file_cache_policy_t policy)
+{
+    if (policy < FILE_CACHE_POLICY_LRU || policy > FILE_CACHE_POLICY_ADAPTIVE) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    const char *policy_name = policy == FILE_CACHE_POLICY_LRU ? "LRU" :
+                              policy == FILE_CACHE_POLICY_LFU ? "LFU" : "ADAPTIVE";
+    ESP_LOGI(TAG, "Setting cache policy to: %s", policy_name);
+    
+    s_policy = policy;
+    return ESP_OK;
+}
+
+file_cache_policy_t file_cache_get_policy(void)
+{
+    return s_policy;
 }
 
 void *file_cache_read(const char *path, size_t *out_size)
@@ -98,13 +227,16 @@ void *file_cache_read(const char *path, size_t *out_size)
         return NULL;
     }
     
+    decay_access_counts();
+    
     int index = find_entry(path);
     if (index >= 0) {
         s_cache[index].access_count++;
         s_cache[index].last_access_time = esp_timer_get_time();
         *out_size = s_cache[index].size;
         s_hits++;
-        ESP_LOGD(TAG, "Cache hit: %s (access_count: %zu)", path, s_cache[index].access_count);
+        ESP_LOGD(TAG, "Cache hit: %s (access_count: %zu, policy: %d)", 
+                 path, s_cache[index].access_count, s_policy);
         return s_cache[index].data;
     }
     
@@ -188,12 +320,13 @@ void *file_cache_read(const char *path, size_t *out_size)
     s_cache[empty_index].size = file_size;
     s_cache[empty_index].access_count = 1;
     s_cache[empty_index].last_access_time = esp_timer_get_time();
+    s_cache[empty_index].creation_time = esp_timer_get_time();
     s_cache[empty_index].valid = true;
     s_current_cache_size += file_size;
     
     *out_size = file_size;
-    ESP_LOGI(TAG, "Cached file: %s (size: %zu, cache_used: %zu/%zu)", 
-             path, file_size, s_current_cache_size, s_max_cache_size);
+    ESP_LOGI(TAG, "Cached file: %s (size: %zu, cache_used: %zu/%zu, policy: %d)", 
+             path, file_size, s_current_cache_size, s_max_cache_size, s_policy);
     
     return data;
 }
@@ -252,6 +385,9 @@ void file_cache_flush(void)
 
 void file_cache_dump(void)
 {
+    const char *policy_name = s_policy == FILE_CACHE_POLICY_LRU ? "LRU" :
+                              s_policy == FILE_CACHE_POLICY_LFU ? "LFU" : "ADAPTIVE";
+    
     ESP_LOGI(TAG, "=== File Cache Dump ===");
     ESP_LOGI(TAG, "Max cache size: %zu bytes", s_max_cache_size);
     ESP_LOGI(TAG, "Current cache size: %zu bytes", s_current_cache_size);
@@ -259,11 +395,14 @@ void file_cache_dump(void)
     ESP_LOGI(TAG, "Cache misses: %zu", s_misses);
     ESP_LOGI(TAG, "Cache hit rate: %.1f%%", s_hits + s_misses > 0 ? 
              (float)s_hits / (s_hits + s_misses) * 100 : 0);
+    ESP_LOGI(TAG, "Current policy: %s", policy_name);
     
     for (int i = 0; i < FILE_CACHE_MAX_ENTRIES; i++) {
         if (s_cache[i].valid) {
-            ESP_LOGI(TAG, "Entry %d: %s (size: %zu, access_count: %zu)",
-                     i, s_cache[i].path, s_cache[i].size, s_cache[i].access_count);
+            uint32_t now = esp_timer_get_time();
+            uint32_t age_ms = (now - s_cache[i].last_access_time) / 1000;
+            ESP_LOGI(TAG, "Entry %d: %s (size: %zu, access_count: %zu, age: %" PRIu32 "ms)",
+                     i, s_cache[i].path, s_cache[i].size, s_cache[i].access_count, age_ms);
         }
     }
     

@@ -224,7 +224,7 @@ lv_obj_t *alarm_app_create(void)
     update_alarm_list();
     
     if (!alarm_task_handle) {
-        xTaskCreate(alarm_check_task, "alarm_check", 2048, NULL, 5, &alarm_task_handle);
+        xTaskCreatePinnedToCore(alarm_check_task, "alarm_check", 2048, NULL, 5, &alarm_task_handle, 1);
     }
     
     ui_animation_slide(scr, LV_DIR_RIGHT, 300);

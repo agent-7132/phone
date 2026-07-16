@@ -5,9 +5,13 @@
 #include "permission_manager.h"
 #include "ui_animation.h"
 #include "esp_log.h"
+#include "esp_jpeg_dec.h"
+#include "esp_jpeg_common.h"
+#include "esp_check.h"
 #include <dirent.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static const char *TAG = "PHOTO_ALBUM";
 
@@ -34,6 +38,14 @@ static bool is_image_file(const char *filename)
             strcmp(ext, ".png") == 0 || strcmp(ext, ".bmp") == 0 ||
             strcmp(ext, ".JPG") == 0 || strcmp(ext, ".JPEG") == 0 ||
             strcmp(ext, ".PNG") == 0 || strcmp(ext, ".BMP") == 0);
+}
+
+static bool is_jpeg_file(const char *filename)
+{
+    const char *ext = strrchr(filename, '.');
+    if (!ext) return false;
+    return (strcmp(ext, ".jpg") == 0 || strcmp(ext, ".jpeg") == 0 ||
+            strcmp(ext, ".JPG") == 0 || strcmp(ext, ".JPEG") == 0);
 }
 
 static void scan_photos(void)
@@ -67,6 +79,111 @@ static void scan_photos(void)
     }
 }
 
+static lv_img_dsc_t *jpeg_decode_hw(const char *file_path)
+{
+    if (!file_path || !is_jpeg_file(file_path)) {
+        return NULL;
+    }
+
+    FILE *fp = fopen(file_path, "rb");
+    if (!fp) {
+        ESP_LOGE(TAG, "Failed to open file: %s", file_path);
+        return NULL;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    size_t file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    uint8_t *jpeg_buf = (uint8_t *)malloc(file_size);
+    if (!jpeg_buf) {
+        fclose(fp);
+        ESP_LOGE(TAG, "Failed to allocate JPEG buffer");
+        return NULL;
+    }
+
+    if (fread(jpeg_buf, 1, file_size, fp) != file_size) {
+        fclose(fp);
+        free(jpeg_buf);
+        ESP_LOGE(TAG, "Failed to read file: %s", file_path);
+        return NULL;
+    }
+    fclose(fp);
+
+    jpeg_dec_config_t dec_config = DEFAULT_JPEG_DEC_CONFIG();
+    dec_config.output_type = JPEG_PIXEL_FORMAT_RGB565_BE;
+
+    jpeg_dec_handle_t dec_handle = NULL;
+    jpeg_error_t ret = jpeg_dec_open(&dec_config, &dec_handle);
+    if (ret != JPEG_ERR_OK) {
+        free(jpeg_buf);
+        ESP_LOGE(TAG, "Failed to open JPEG decoder: %d", ret);
+        return NULL;
+    }
+
+    jpeg_dec_io_t dec_io = {
+        .inbuf = jpeg_buf,
+        .inbuf_len = file_size,
+        .inbuf_remain = file_size,
+    };
+
+    jpeg_dec_header_info_t header_info = {0};
+    ret = jpeg_dec_parse_header(dec_handle, &dec_io, &header_info);
+    if (ret != JPEG_ERR_OK) {
+        jpeg_dec_close(dec_handle);
+        free(jpeg_buf);
+        ESP_LOGE(TAG, "Failed to parse JPEG header: %d", ret);
+        return NULL;
+    }
+
+    int outbuf_len = 0;
+    ret = jpeg_dec_get_outbuf_len(dec_handle, &outbuf_len);
+    if (ret != JPEG_ERR_OK) {
+        jpeg_dec_close(dec_handle);
+        free(jpeg_buf);
+        ESP_LOGE(TAG, "Failed to get output buffer length: %d", ret);
+        return NULL;
+    }
+
+    uint8_t *outbuf = (uint8_t *)jpeg_calloc_align(outbuf_len, 16);
+    if (!outbuf) {
+        jpeg_dec_close(dec_handle);
+        free(jpeg_buf);
+        ESP_LOGE(TAG, "Failed to allocate output buffer");
+        return NULL;
+    }
+
+    dec_io.outbuf = outbuf;
+    ret = jpeg_dec_process(dec_handle, &dec_io);
+    jpeg_dec_close(dec_handle);
+    free(jpeg_buf);
+
+    if (ret != JPEG_ERR_OK) {
+        free(outbuf);
+        ESP_LOGE(TAG, "JPEG decode failed: %d", ret);
+        return NULL;
+    }
+
+    lv_img_dsc_t *img_dsc = (lv_img_dsc_t *)malloc(sizeof(lv_img_dsc_t));
+    if (!img_dsc) {
+        free(outbuf);
+        ESP_LOGE(TAG, "Failed to allocate image descriptor");
+        return NULL;
+    }
+
+    img_dsc->data = (const void *)outbuf;
+    img_dsc->header.magic = LV_IMAGE_HEADER_MAGIC;
+    img_dsc->header.cf = LV_COLOR_FORMAT_RGB565;
+    img_dsc->header.flags = 0;
+    img_dsc->header.w = header_info.width;
+    img_dsc->header.h = header_info.height;
+
+    ESP_LOGI(TAG, "JPEG decoded: %dx%d, size: %d bytes", 
+             header_info.width, header_info.height, outbuf_len);
+
+    return img_dsc;
+}
+
 static void update_zoom(void)
 {
     if (!preview_img) return;
@@ -89,7 +206,19 @@ static void show_preview(int index)
 
     lv_obj_clear_flag(preview_container, LV_OBJ_FLAG_HIDDEN);
 
-    lv_img_set_src(preview_img, photo_paths[index]);
+    if (is_jpeg_file(photo_paths[index])) {
+        lv_img_dsc_t *img_dsc = jpeg_decode_hw(photo_paths[index]);
+        if (img_dsc) {
+            lv_img_set_src(preview_img, img_dsc);
+            lv_obj_set_user_data(preview_img, img_dsc);
+        } else {
+            lv_img_set_src(preview_img, photo_paths[index]);
+            lv_obj_set_user_data(preview_img, NULL);
+        }
+    } else {
+        lv_img_set_src(preview_img, photo_paths[index]);
+        lv_obj_set_user_data(preview_img, NULL);
+    }
     update_zoom();
 
     const char *filename = strrchr(photo_paths[index], '/');
@@ -104,6 +233,14 @@ static void show_preview(int index)
 static void hide_preview(lv_event_t *e)
 {
     (void)e;
+    
+    lv_img_dsc_t *img_dsc = (lv_img_dsc_t *)lv_obj_get_user_data(preview_img);
+    if (img_dsc) {
+        free((void *)img_dsc->data);
+        free(img_dsc);
+        lv_obj_set_user_data(preview_img, NULL);
+    }
+    
     lv_obj_add_flag(preview_container, LV_OBJ_FLAG_HIDDEN);
     current_photo = -1;
     zoom_level = 1;
@@ -126,6 +263,13 @@ static void prev_photo(lv_event_t *e)
     (void)e;
     if (photo_count == 0) return;
 
+    lv_img_dsc_t *old_dsc = (lv_img_dsc_t *)lv_obj_get_user_data(preview_img);
+    if (old_dsc) {
+        free((void *)old_dsc->data);
+        free(old_dsc);
+        lv_obj_set_user_data(preview_img, NULL);
+    }
+
     int new_index = (current_photo <= 0) ? photo_count - 1 : current_photo - 1;
     show_preview(new_index);
 }
@@ -134,6 +278,13 @@ static void next_photo(lv_event_t *e)
 {
     (void)e;
     if (photo_count == 0) return;
+
+    lv_img_dsc_t *old_dsc = (lv_img_dsc_t *)lv_obj_get_user_data(preview_img);
+    if (old_dsc) {
+        free((void *)old_dsc->data);
+        free(old_dsc);
+        lv_obj_set_user_data(preview_img, NULL);
+    }
 
     int new_index = (current_photo >= photo_count - 1) ? 0 : current_photo + 1;
     show_preview(new_index);
@@ -159,6 +310,13 @@ static void gesture_handler(gesture_type_t type, lv_point_t start, lv_point_t en
             
         case GESTURE_TYPE_SWIPE_LEFT:
             if (photo_count > 1) {
+                lv_img_dsc_t *old_dsc = (lv_img_dsc_t *)lv_obj_get_user_data(preview_img);
+                if (old_dsc) {
+                    free((void *)old_dsc->data);
+                    free(old_dsc);
+                    lv_obj_set_user_data(preview_img, NULL);
+                }
+                
                 int new_index = (current_photo >= photo_count - 1) ? 0 : current_photo + 1;
                 show_preview(new_index);
                 ESP_LOGI(TAG, "Swipe left - next photo: %d", new_index);
@@ -167,6 +325,13 @@ static void gesture_handler(gesture_type_t type, lv_point_t start, lv_point_t en
             
         case GESTURE_TYPE_SWIPE_RIGHT:
             if (photo_count > 1) {
+                lv_img_dsc_t *old_dsc = (lv_img_dsc_t *)lv_obj_get_user_data(preview_img);
+                if (old_dsc) {
+                    free((void *)old_dsc->data);
+                    free(old_dsc);
+                    lv_obj_set_user_data(preview_img, NULL);
+                }
+                
                 int new_index = (current_photo <= 0) ? photo_count - 1 : current_photo - 1;
                 show_preview(new_index);
                 ESP_LOGI(TAG, "Swipe right - prev photo: %d", new_index);
@@ -392,6 +557,6 @@ lv_obj_t *photo_album_app_create(void)
 
     ui_animation_slide(scr, LV_DIR_RIGHT, 300);
 
-    ESP_LOGI(TAG, "Photo album app created with modern card design");
+    ESP_LOGI(TAG, "Photo album app created with hardware JPEG decode");
     return scr;
 }

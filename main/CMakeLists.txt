@@ -35,6 +35,7 @@ idf_component_register(SRCS "main.c"
                     "system/utils.c"
                     "system/app_signature.c"
                     "system/firmware_verify.c"
+                    "system/usb_host_manager.c"
                     "apps/display_app.c"
                     "apps/touch_app.c"
                     "apps/i2c_app.c"
@@ -57,4 +58,4 @@ idf_component_register(SRCS "main.c"
                     "apps/alarm_app.c"
                     "apps/input_tool.c"
                     INCLUDE_DIRS "." "system" "apps"
-                    REQUIRES bsp vfs esp_netif esp_eth esp_event nvs_flash esp_http_client esp_pm esp_driver_uart bt esp_lcd app_update mbedtls driver)
+                    REQUIRES bsp vfs esp_netif esp_eth esp_event nvs_flash esp_http_client esp_pm esp_driver_uart bt esp_lcd app_update mbedtls driver esp_mm esp_driver_i2c)

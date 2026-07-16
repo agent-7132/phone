@@ -10,6 +10,7 @@
 #include "esp_heap_caps.h"
 #include "dirent.h"
 #include "sys/stat.h"
+#include "usb_host_manager.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -720,6 +721,44 @@ static void sdcard_btn_cb(lv_event_t *e)
     scan_directory();
 }
 
+static void usb_btn_cb(lv_event_t *e)
+{
+    (void)e;
+    free_paths();
+    strcpy(current_path, "/usb");
+    lv_label_set_text(path_label, current_path);
+    
+    if (usb_host_manager_is_mounted()) {
+        scan_directory();
+    } else {
+        clear_file_list();
+        lv_obj_t *empty_label = lv_label_create(list);
+        lv_label_set_text(empty_label, "USB device not connected");
+        lv_obj_set_style_text_font(empty_label, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(empty_label, lv_color_hex(0xFF5252), 0);
+        lv_obj_center(empty_label);
+        ui_feedback_show_toast("USB", "Please connect a USB drive", UI_FEEDBACK_TYPE_WARNING, 2000);
+    }
+}
+
+static void usb_status_callback(usb_host_state_t state, const char *mount_path)
+{
+    (void)mount_path;
+    ESP_LOGI(TAG, "USB host status changed: %d", state);
+    
+    if (state == USB_HOST_STATE_MOUNTED && strcmp(current_path, "/usb") == 0) {
+        scan_directory();
+        ui_feedback_show_toast("USB", "Drive mounted", UI_FEEDBACK_TYPE_SUCCESS, 2000);
+    } else if (state == USB_HOST_STATE_INITIALIZED && strcmp(current_path, "/usb") == 0) {
+        clear_file_list();
+        lv_obj_t *empty_label = lv_label_create(list);
+        lv_label_set_text(empty_label, "USB device removed");
+        lv_obj_set_style_text_font(empty_label, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(empty_label, lv_color_hex(0xFF5252), 0);
+        lv_obj_center(empty_label);
+    }
+}
+
 lv_obj_t *file_browser_app_create(void)
 {
     lv_obj_t *scr = lv_obj_create(NULL);
@@ -809,7 +848,7 @@ lv_obj_t *file_browser_app_create(void)
     lv_obj_align(list, LV_ALIGN_CENTER, 0, 0);
 
     lv_obj_t *spiffs_btn = lv_btn_create(scr);
-    lv_obj_set_size(spiffs_btn, 140, 45);
+    lv_obj_set_size(spiffs_btn, 120, 45);
     lv_obj_set_style_bg_color(spiffs_btn, lv_color_hex(0x4a4a6a), 0);
     lv_obj_set_style_bg_color(spiffs_btn, lv_color_hex(0x5a5a8a), LV_STATE_PRESSED);
     lv_obj_set_style_border_width(spiffs_btn, 0, 0);
@@ -825,12 +864,12 @@ lv_obj_t *file_browser_app_create(void)
     lv_obj_add_event_cb(spiffs_btn, spiffs_btn_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *sdcard_btn = lv_btn_create(scr);
-    lv_obj_set_size(sdcard_btn, 140, 45);
+    lv_obj_set_size(sdcard_btn, 120, 45);
     lv_obj_set_style_bg_color(sdcard_btn, lv_color_hex(0x4a4a6a), 0);
     lv_obj_set_style_bg_color(sdcard_btn, lv_color_hex(0x5a5a8a), LV_STATE_PRESSED);
     lv_obj_set_style_border_width(sdcard_btn, 0, 0);
     lv_obj_set_style_radius(sdcard_btn, 8, 0);
-    lv_obj_align(sdcard_btn, LV_ALIGN_BOTTOM_LEFT, 175, -20);
+    lv_obj_align(sdcard_btn, LV_ALIGN_BOTTOM_LEFT, 145, -20);
 
     lv_obj_t *sdcard_label = lv_label_create(sdcard_btn);
     lv_label_set_text(sdcard_label, "💾 SD Card");
@@ -839,6 +878,24 @@ lv_obj_t *file_browser_app_create(void)
     lv_obj_center(sdcard_label);
 
     lv_obj_add_event_cb(sdcard_btn, sdcard_btn_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *usb_btn = lv_btn_create(scr);
+    lv_obj_set_size(usb_btn, 120, 45);
+    lv_obj_set_style_bg_color(usb_btn, lv_color_hex(0x4a4a6a), 0);
+    lv_obj_set_style_bg_color(usb_btn, lv_color_hex(0x5a5a8a), LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(usb_btn, 0, 0);
+    lv_obj_set_style_radius(usb_btn, 8, 0);
+    lv_obj_align(usb_btn, LV_ALIGN_BOTTOM_LEFT, 275, -20);
+
+    lv_obj_t *usb_label = lv_label_create(usb_btn);
+    lv_label_set_text(usb_label, "🖥️ USB");
+    lv_obj_set_style_text_font(usb_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(usb_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(usb_label);
+
+    lv_obj_add_event_cb(usb_btn, usb_btn_cb, LV_EVENT_CLICKED, NULL);
+
+    usb_host_manager_register_event_cb(usb_status_callback);
 
     lv_obj_t *back_btn = lv_btn_create(scr);
     lv_obj_set_size(back_btn, 90, 45);

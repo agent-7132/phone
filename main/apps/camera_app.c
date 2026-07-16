@@ -2,6 +2,7 @@
 #include "status_bar.h"
 #include "app_manager.h"
 #include "bsp/display.h"
+#include "bsp/bsp_camera.h"
 #include "permission_manager.h"
 #include "ui_animation.h"
 #include "ui_feedback.h"
@@ -12,12 +13,15 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "esp_heap_caps.h"
 
 static const char *TAG = "CAMERA_APP";
 
 static lv_obj_t *status_label = NULL;
 static lv_obj_t *mode_label = NULL;
 static lv_obj_t *recording_timer_label = NULL;
+static lv_obj_t *preview_img = NULL;
+static lv_timer_t *preview_timer = NULL;
 static bool camera_running = false;
 static bool is_recording = false;
 static int photo_count = 0;
@@ -28,12 +32,15 @@ static FILE *video_file = NULL;
 static time_t record_start_time;
 static lv_obj_t *flash_icon = NULL;
 static lv_obj_t *hdr_icon = NULL;
+static lv_obj_t *ai_icon = NULL;
 static bool flash_on = false;
 static bool hdr_on = false;
+static bool ai_mode = false;
 
 typedef enum {
     CAM_MODE_PHOTO,
-    CAM_MODE_VIDEO
+    CAM_MODE_VIDEO,
+    CAM_MODE_AI
 } camera_mode_t;
 
 static camera_mode_t current_mode = CAM_MODE_PHOTO;
@@ -119,7 +126,7 @@ static void start_recording(void)
     
     lv_label_set_text(status_label, "Recording...");
     
-    xTaskCreate(record_video_task, "video_record", 2048, NULL, 5, &record_task_handle);
+    xTaskCreatePinnedToCore(record_video_task, "video_record", 2048, NULL, 5, &record_task_handle, 1);
     
     ESP_LOGI(TAG, "Video recording started: %s", filename);
 }
@@ -153,6 +160,8 @@ static void toggle_recording(lv_event_t *e)
     }
 }
 
+
+
 static void capture_photo(lv_event_t *e)
 {
     (void)e;
@@ -176,18 +185,26 @@ static void capture_photo(lv_event_t *e)
         return;
     }
     
+    bsp_camera_frame_t *frame = bsp_camera_capture();
+    if (!frame) {
+        lv_label_set_text(status_label, "Capture failed");
+        ESP_LOGE(TAG, "Failed to capture frame");
+        return;
+    }
+    
+
+    
     char filename[64];
-    snprintf(filename, sizeof(filename), "/sdcard/photo_%04d.jpg", photo_count++);
+    snprintf(filename, sizeof(filename), "/sdcard/photo_%04d.rgb565", photo_count++);
     
     FILE *fp = fopen(filename, "wb");
     if (!fp) {
-        snprintf(filename, sizeof(filename), "/spiffs/photo_%04d.jpg", photo_count - 1);
+        snprintf(filename, sizeof(filename), "/spiffs/photo_%04d.rgb565", photo_count - 1);
         fp = fopen(filename, "wb");
     }
     
     if (fp) {
-        uint8_t fake_jpeg[128] = {0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00, 0x01, 0x01, 0x00, 0x00, 0x01};
-        fwrite(fake_jpeg, 1, sizeof(fake_jpeg), fp);
+        fwrite(frame->buf, 1, frame->len, fp);
         fclose(fp);
         
         char msg[128];
@@ -200,6 +217,8 @@ static void capture_photo(lv_event_t *e)
         ui_feedback_show_toast("Capture Failed", "Cannot save photo", UI_FEEDBACK_TYPE_ERROR, 2000);
         ESP_LOGE(TAG, "Failed to save photo");
     }
+    
+    bsp_camera_return_frame(frame);
 }
 
 static void toggle_mode(lv_event_t *e)
@@ -210,17 +229,30 @@ static void toggle_mode(lv_event_t *e)
         stop_recording();
     }
     
-    current_mode = (current_mode == CAM_MODE_PHOTO) ? CAM_MODE_VIDEO : CAM_MODE_PHOTO;
+    int next_mode = (int)current_mode + 1;
+    if (next_mode >= CAM_MODE_AI + 1) next_mode = CAM_MODE_PHOTO;
+    current_mode = (camera_mode_t)next_mode;
     
     if (current_mode == CAM_MODE_PHOTO) {
         lv_label_set_text(mode_label, "Photo");
         lv_label_set_text(status_label, "Ready to capture");
-    } else {
+        ai_mode = false;
+        lv_obj_set_style_text_color(ai_icon, lv_color_hex(0x888888), 0);
+    } else if (current_mode == CAM_MODE_VIDEO) {
         lv_label_set_text(mode_label, "Video");
         lv_label_set_text(status_label, "Ready to record");
+        ai_mode = false;
+        lv_obj_set_style_text_color(ai_icon, lv_color_hex(0x888888), 0);
+    } else if (current_mode == CAM_MODE_AI) {
+        lv_label_set_text(mode_label, "AI");
+        lv_label_set_text(status_label, "AI Mode disabled (TFLite not available)");
+        ai_mode = false;
+        lv_obj_set_style_text_color(ai_icon, lv_color_hex(0x888888), 0);
     }
     
-    ESP_LOGI(TAG, "Switched to %s mode", current_mode == CAM_MODE_PHOTO ? "photo" : "video");
+    ESP_LOGI(TAG, "Switched to %s mode", 
+             current_mode == CAM_MODE_PHOTO ? "photo" : 
+             current_mode == CAM_MODE_VIDEO ? "video" : "AI");
 }
 
 static void toggle_flash(lv_event_t *e)
@@ -241,6 +273,19 @@ static void toggle_hdr(lv_event_t *e)
     lv_label_set_text(status_label, hdr_on ? "HDR: ON" : "HDR: OFF");
 }
 
+static void toggle_ai_mode(lv_event_t *e)
+{
+    (void)e;
+    
+    if (current_mode == CAM_MODE_AI) {
+        ai_mode = false;
+        lv_obj_set_style_text_color(ai_icon, lv_color_hex(0x888888), 0);
+        lv_label_set_text(status_label, "AI Mode disabled (TFLite not available)");
+    } else {
+        lv_label_set_text(status_label, "Switch to AI mode first");
+    }
+}
+
 static void back_button_cb(lv_event_t *e)
 {
     (void)e;
@@ -250,6 +295,14 @@ static void back_button_cb(lv_event_t *e)
     }
     
     camera_running = false;
+    
+    if (preview_timer) {
+        lv_timer_delete(preview_timer);
+        preview_timer = NULL;
+    }
+    
+    bsp_camera_deinit();
+    
     app_manager_go_home();
 }
 
@@ -266,6 +319,33 @@ static void update_timer(lv_timer_t *timer)
     } else {
         lv_label_set_text(recording_timer_label, "--:--:--");
     }
+}
+
+static void preview_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    
+    if (!camera_running || !preview_img) {
+        return;
+    }
+    
+    bsp_camera_frame_t *frame = bsp_camera_capture();
+    if (!frame) {
+        return;
+    }
+    
+    lv_img_dsc_t img_dsc = {
+        .data = (const void *)frame->buf,
+        .header.magic = LV_IMAGE_HEADER_MAGIC,
+        .header.cf = LV_COLOR_FORMAT_RGB565,
+        .header.flags = 0,
+        .header.w = frame->width,
+        .header.h = frame->height,
+    };
+    
+    lv_img_set_src(preview_img, &img_dsc);
+    
+    bsp_camera_return_frame(frame);
 }
 
 lv_obj_t *camera_app_create(void)
@@ -300,7 +380,7 @@ lv_obj_t *camera_app_create(void)
     lv_obj_align(recording_timer_label, LV_ALIGN_CENTER, 0, 0);
     
     lv_obj_t *right_container = lv_obj_create(top_bar);
-    lv_obj_set_size(right_container, 100, 40);
+    lv_obj_set_size(right_container, 140, 40);
     lv_obj_set_style_bg_color(right_container, lv_color_hex(0x000000), 0);
     lv_obj_set_style_border_width(right_container, 0, 0);
     lv_obj_align(right_container, LV_ALIGN_RIGHT_MID, -10, 0);
@@ -315,14 +395,20 @@ lv_obj_t *camera_app_create(void)
     lv_label_set_text(hdr_icon, "HDR");
     lv_obj_set_style_text_font(hdr_icon, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(hdr_icon, lv_color_hex(0x888888), 0);
-    lv_obj_align(hdr_icon, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_align(hdr_icon, LV_ALIGN_CENTER, 0, 0);
+    
+    ai_icon = lv_label_create(right_container);
+    lv_label_set_text(ai_icon, "🤖");
+    lv_obj_set_style_text_font(ai_icon, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(ai_icon, lv_color_hex(0x888888), 0);
+    lv_obj_align(ai_icon, LV_ALIGN_RIGHT_MID, 0, 0);
     
     lv_obj_t *flash_btn = lv_btn_create(top_bar);
     lv_obj_set_size(flash_btn, 40, 40);
     lv_obj_set_style_bg_color(flash_btn, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(flash_btn, 0, 0);
     lv_obj_set_style_border_width(flash_btn, 0, 0);
-    lv_obj_align(flash_btn, LV_ALIGN_RIGHT_MID, -60, 0);
+    lv_obj_align(flash_btn, LV_ALIGN_RIGHT_MID, -100, 0);
     lv_obj_add_event_cb(flash_btn, toggle_flash, LV_EVENT_CLICKED, NULL);
     
     lv_obj_t *hdr_btn = lv_btn_create(top_bar);
@@ -330,11 +416,19 @@ lv_obj_t *camera_app_create(void)
     lv_obj_set_style_bg_color(hdr_btn, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(hdr_btn, 0, 0);
     lv_obj_set_style_border_width(hdr_btn, 0, 0);
-    lv_obj_align(hdr_btn, LV_ALIGN_RIGHT_MID, -15, 0);
+    lv_obj_align(hdr_btn, LV_ALIGN_RIGHT_MID, -55, 0);
     lv_obj_add_event_cb(hdr_btn, toggle_hdr, LV_EVENT_CLICKED, NULL);
     
+    lv_obj_t *ai_btn = lv_btn_create(top_bar);
+    lv_obj_set_size(ai_btn, 40, 40);
+    lv_obj_set_style_bg_color(ai_btn, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(ai_btn, 0, 0);
+    lv_obj_set_style_border_width(ai_btn, 0, 0);
+    lv_obj_align(ai_btn, LV_ALIGN_RIGHT_MID, -15, 0);
+    lv_obj_add_event_cb(ai_btn, toggle_ai_mode, LV_EVENT_CLICKED, NULL);
+    
     status_label = lv_label_create(scr);
-    lv_label_set_text(status_label, "Ready to capture");
+    lv_label_set_text(status_label, "Initializing camera...");
     lv_obj_set_style_text_font(status_label, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(status_label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_opa(status_label, 80, 0);
@@ -345,6 +439,10 @@ lv_obj_t *camera_app_create(void)
     lv_obj_set_style_bg_color(preview_frame, lv_color_hex(0x1a1a1a), LV_PART_MAIN);
     lv_obj_set_style_border_width(preview_frame, 0, LV_PART_MAIN);
     lv_obj_align(preview_frame, LV_ALIGN_CENTER, 0, -20);
+    
+    preview_img = lv_img_create(preview_frame);
+    lv_obj_set_size(preview_img, 460, 520);
+    lv_obj_center(preview_img);
     
     lv_obj_t *focus_frame = lv_obj_create(preview_frame);
     lv_obj_set_size(focus_frame, 80, 80);
@@ -382,12 +480,6 @@ lv_obj_t *camera_app_create(void)
     lv_obj_set_style_border_width(focus_corner_br, 0, 0);
     lv_obj_set_style_radius(focus_corner_br, 2, 0);
     lv_obj_align(focus_corner_br, LV_ALIGN_BOTTOM_RIGHT, 2, 2);
-    
-    lv_obj_t *preview_label = lv_label_create(preview_frame);
-    lv_label_set_text(preview_label, "Preview Area\n(Camera feed)");
-    lv_obj_set_style_text_font(preview_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(preview_label, lv_color_hex(0x555555), 0);
-    lv_obj_center(preview_label);
     
     lv_obj_t *bottom_bar = lv_obj_create(scr);
     lv_obj_set_size(bottom_bar, 480, 110);
@@ -431,8 +523,10 @@ lv_obj_t *camera_app_create(void)
     
     if (current_mode == CAM_MODE_PHOTO) {
         lv_obj_add_event_cb(capture_btn, capture_photo, LV_EVENT_CLICKED, NULL);
-    } else {
+    } else if (current_mode == CAM_MODE_VIDEO) {
         lv_obj_add_event_cb(capture_btn, toggle_recording, LV_EVENT_CLICKED, NULL);
+    } else {
+        lv_obj_add_event_cb(capture_btn, capture_photo, LV_EVENT_CLICKED, NULL);
     }
     
     lv_obj_t *capture_inner = lv_obj_create(capture_btn);
@@ -463,10 +557,25 @@ lv_obj_t *camera_app_create(void)
     
     lv_timer_create(update_timer, 1000, NULL);
     
-    camera_running = false;
+    if (!permission_check("Camera", PERMISSION_CAMERA)) {
+        lv_label_set_text(status_label, "Camera permission denied");
+        ESP_LOGW(TAG, "Camera permission denied");
+        permission_request("Camera", PERMISSION_CAMERA);
+    } else {
+        esp_err_t ret = bsp_camera_init();
+        if (ret == ESP_OK) {
+            camera_running = true;
+            lv_label_set_text(status_label, "Ready to capture");
+            preview_timer = lv_timer_create(preview_timer_cb, 30, NULL);
+            ESP_LOGI(TAG, "Camera initialized, preview started");
+        } else {
+            lv_label_set_text(status_label, "Camera init failed");
+            ESP_LOGE(TAG, "Camera initialization failed");
+        }
+    }
     
     ui_animation_scale(scr, true, 300);
     
-    ESP_LOGI(TAG, "Camera app created");
+    ESP_LOGI(TAG, "Camera app created with AI face detection");
     return scr;
 }

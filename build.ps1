@@ -6,6 +6,8 @@ $env:PATH="C:\Users\agent\.espressif\python_env\idf6.0_py3.12_env\Scripts;C:\Esp
 
 cd e:\phone
 
+python "$env:IDF_PATH\tools\idf.py" install-deps
+
 if ($args[0] -eq "clean") {
     Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue
     Remove-Item sdkconfig -ErrorAction SilentlyContinue

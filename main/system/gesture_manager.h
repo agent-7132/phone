@@ -16,7 +16,13 @@ typedef enum {
     GESTURE_TYPE_DOUBLE_TAP,
     GESTURE_TYPE_LONG_PRESS,
     GESTURE_TYPE_PINCH_IN,
-    GESTURE_TYPE_PINCH_OUT
+    GESTURE_TYPE_PINCH_OUT,
+    GESTURE_TYPE_LETTER_A,
+    GESTURE_TYPE_LETTER_B,
+    GESTURE_TYPE_LETTER_C,
+    GESTURE_TYPE_LETTER_V,
+    GESTURE_TYPE_LETTER_Z,
+    GESTURE_TYPE_UNKNOWN
 } gesture_type_t;
 
 typedef void (*gesture_callback_t)(gesture_type_t type, lv_point_t start, lv_point_t end);
