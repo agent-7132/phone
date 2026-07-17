@@ -6,23 +6,109 @@ $env:PATH="C:\Users\agent\.espressif\python_env\idf6.0_py3.12_env\Scripts;C:\Esp
 
 cd e:\phone
 
-python "$env:IDF_PATH\tools\idf.py" install-deps
+function Write-Color {
+    param(
+        [string]$Message,
+        [string]$Color = "White"
+    )
+    Write-Host "[$(Get-Date -Format 'HH:mm:ss')] $Message" -ForegroundColor $Color
+}
+
+function Write-Success {
+    param([string]$Message)
+    Write-Color $Message "Green"
+}
+
+function Write-Error {
+    param([string]$Message)
+    Write-Color $Message "Red"
+}
+
+function Write-Warning {
+    param([string]$Message)
+    Write-Color $Message "Yellow"
+}
+
+function Write-Status {
+    param([string]$Message)
+    Write-Color $Message "Cyan"
+}
 
 if ($args[0] -eq "clean") {
+    Write-Status "Cleaning build directory..."
     Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue
     Remove-Item sdkconfig -ErrorAction SilentlyContinue
-    Write-Output "Build cleaned."
+    Write-Success "Build cleaned."
     exit 0
 }
 
 if ($args[0] -eq "flash") {
+    Write-Status "Flashing firmware to COM3..."
     python "$env:IDF_PATH\tools\idf.py" -p COM3 flash
-    exit 0
+    if ($LASTEXITCODE -eq 0) {
+        Write-Success "Flash completed successfully."
+        exit 0
+    } else {
+        Write-Error "Flash failed."
+        exit 1
+    }
 }
 
 if ($args[0] -eq "monitor") {
+    Write-Status "Starting monitor on COM3..."
     python "$env:IDF_PATH\tools\idf.py" -p COM3 monitor
     exit 0
 }
 
-python "$env:IDF_PATH\tools\idf.py" build
+if ($args[0] -eq "flash_monitor") {
+    Write-Status "Flashing and starting monitor..."
+    python "$env:IDF_PATH\tools\idf.py" -p COM3 flash monitor
+    exit 0
+}
+
+$pushFlag = $false
+$commitMsg = $null
+
+for ($i = 0; $i -lt $args.Count; $i++) {
+    if ($args[$i] -eq "push") {
+        $pushFlag = $true
+    } elseif ($args[$i] -eq "-m" -or $args[$i] -eq "--message") {
+        if ($i + 1 -lt $args.Count) {
+            $commitMsg = $args[$i + 1]
+            $i++
+        }
+    }
+}
+
+Write-Status "Starting build..."
+python "$env:IDF_PATH\tools\idf.py" install-deps 2>&1 | Out-Null
+
+$buildOutput = python "$env:IDF_PATH\tools\idf.py" build 2>&1
+if ($LASTEXITCODE -eq 0) {
+    Write-Success "Build succeeded!"
+    $sizeLine = $buildOutput | Where-Object { $_ -match "binary size" }
+    if ($sizeLine) {
+        Write-Status "Firmware size: $sizeLine"
+    }
+    
+    if ($pushFlag) {
+        Write-Status "Pushing changes to GitHub..."
+        if ($commitMsg) {
+            & powershell -ExecutionPolicy Bypass -File .\push_to_github.ps1 -CommitMessage $commitMsg -SkipBuild
+        } else {
+            & powershell -ExecutionPolicy Bypass -File .\push_to_github.ps1 -SkipBuild
+        }
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Push completed successfully!"
+        } else {
+            Write-Error "Push failed."
+            exit 1
+        }
+    }
+    
+    exit 0
+} else {
+    Write-Error "Build failed!"
+    $buildOutput | Where-Object { $_ -match "error|Error" } | ForEach-Object { Write-Color $_ "Red" }
+    exit 1
+}

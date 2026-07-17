@@ -1379,13 +1379,8 @@ esp_err_t app_manager_init(void);
 
 | 项目 | 值 |
 |------|-----|
-<<<<<<< HEAD
-| 文档版本 | 7.7 |
+| 文档版本 | 7.8 |
 | 最后更新 | 2026-07-18 |
-=======
-| 文档版本 | 7.2 |
-| 最后更新 | 2026-07-17 |
->>>>>>> 59edecb4252cd3d57e3b64b45c5e374e30d05a81
 | 构建状态 | ✅ 构建成功 |
 | 编译模式 | SIZE优化 |
 | 固件大小 | 0x1bbea0 字节（约1.74MB） |
@@ -1394,6 +1389,42 @@ esp_err_t app_manager_init(void);
 | 构建命令 | `.\build.ps1` |
 | Kconfig警告 | ✅ 已清理无效配置项 |
 | 代码警告 | ✅ 无 |
+
+### 15.7 构建脚本说明
+
+**build.ps1** 提供一站式构建、烧录和推送功能：
+
+| 命令 | 说明 |
+|------|------|
+| `.\build.ps1` | 构建项目 |
+| `.\build.ps1 clean` | 清理构建目录 |
+| `.\build.ps1 flash` | 烧录固件到COM3 |
+| `.\build.ps1 monitor` | 启动串口监视器 |
+| `.\build.ps1 flash_monitor` | 烧录并启动监视器 |
+| `.\build.ps1 push` | 构建成功后推送至GitHub |
+| `.\build.ps1 push -m "commit message"` | 构建成功后推送，指定提交信息 |
+
+**push_to_github.ps1** 单独推送脚本：
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `-CommitMessage` | 自定义提交信息 | 自动生成 |
+| `-Branch` | 目标分支 | main |
+| `-SkipBuild` | 跳过构建验证 | 否 |
+
+**使用示例**：
+
+```powershell
+# 构建并推送（自动生成提交信息）
+.\build.ps1 push
+
+# 构建并推送（指定提交信息）
+.\build.ps1 push -m "feat: 添加新功能"
+
+# 单独推送（跳过构建）
+.\push_to_github.ps1 -SkipBuild
+.\push_to_github.ps1 -CommitMessage "fix: 修复bug" -Branch main
+```
 
 **新增功能验证**：
 
