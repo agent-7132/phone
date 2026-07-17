@@ -48,6 +48,27 @@ static void enter_deep_sleep(void)
     esp_deep_sleep_start();
 }
 
+#define LIGHT_SLEEP_MAX_RETRY 3
+#define LIGHT_SLEEP_RETRY_DELAY_MS 500
+
+static bool perform_light_sleep(void)
+{
+    esp_err_t ret = esp_sleep_enable_touchpad_wakeup();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to enable touchpad wakeup: %s", esp_err_to_name(ret));
+        return false;
+    }
+
+    ret = esp_sleep_enable_ext1_wakeup_io((1ULL << GPIO_NUM_0), ESP_EXT1_WAKEUP_ANY_LOW);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to enable ext1 wakeup: %s", esp_err_to_name(ret));
+        return false;
+    }
+
+    esp_light_sleep_start();
+    return true;
+}
+
 static void enter_light_sleep(void)
 {
     ESP_LOGI(TAG, "Entering light sleep...");
@@ -61,17 +82,24 @@ static void enter_light_sleep(void)
     esp_wifi_stop();
     bt_manager_disable();
 
-    esp_err_t ret = esp_sleep_enable_touchpad_wakeup();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to enable touchpad wakeup: %s", esp_err_to_name(ret));
+    bool wakeup_success = false;
+    int retry_count = 0;
+    
+    while (!wakeup_success && retry_count < LIGHT_SLEEP_MAX_RETRY) {
+        wakeup_success = perform_light_sleep();
+        
+        if (!wakeup_success) {
+            retry_count++;
+            ESP_LOGE(TAG, "Light sleep attempt %d/%d failed, retrying...", retry_count, LIGHT_SLEEP_MAX_RETRY);
+            vTaskDelay(pdMS_TO_TICKS(LIGHT_SLEEP_RETRY_DELAY_MS));
+        }
     }
-
-    ret = esp_sleep_enable_ext1_wakeup_io((1ULL << GPIO_NUM_0), ESP_EXT1_WAKEUP_ANY_LOW);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to enable ext1 wakeup: %s", esp_err_to_name(ret));
+    
+    if (!wakeup_success) {
+        ESP_LOGE(TAG, "Light sleep failed after %d attempts, resetting system", LIGHT_SLEEP_MAX_RETRY);
+        esp_restart();
+        return;
     }
-
-    esp_light_sleep_start();
 
     bt_manager_enable();
     esp_wifi_start();
@@ -82,7 +110,7 @@ static void enter_light_sleep(void)
         s_sleep_exit_cb();
     }
 
-    ESP_LOGI(TAG, "Woke up from light sleep");
+    ESP_LOGI(TAG, "Woke up from light sleep (retries: %d)", retry_count);
 }
 
 static void auto_sleep_task(void *arg)

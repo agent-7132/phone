@@ -12,7 +12,7 @@
 #include "esp_vfs_fat.h"
 #if CONFIG_BSP_USB_HOST_ENABLE
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
-#include "usb_host.h"
+#include "usb/usb_host.h"
 #else
 #include "usb/usb_host.h"
 #endif

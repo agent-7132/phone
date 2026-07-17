@@ -57,8 +57,34 @@
 #include "system/file_cache.h"
 #include "system/usb_host_manager.h"
 #include "esp_heap_caps.h"
+#include "esp_chip_info.h"
 
 static const char *TAG = "PHONE_SYSTEM";
+
+static void log_chip_info(void)
+{
+    esp_chip_info_t chip_info;
+    esp_chip_info(&chip_info);
+    
+    unsigned major_rev = chip_info.revision / 100;
+    unsigned minor_rev = chip_info.revision % 100;
+    
+    ESP_LOGI(TAG, "Chip Info:");
+    ESP_LOGI(TAG, "  Model: ESP32-P4");
+    ESP_LOGI(TAG, "  Silicon Revision: v%d.%d", major_rev, minor_rev);
+    ESP_LOGI(TAG, "  CPU Cores: %d", chip_info.cores);
+    ESP_LOGI(TAG, "  Features:");
+    ESP_LOGI(TAG, "    - WiFi: %s", (chip_info.features & CHIP_FEATURE_WIFI_BGN) ? "yes" : "no");
+    ESP_LOGI(TAG, "    - BLE: %s", (chip_info.features & CHIP_FEATURE_BLE) ? "yes" : "no");
+    ESP_LOGI(TAG, "    - IEEE802.15.4: %s", (chip_info.features & CHIP_FEATURE_IEEE802154) ? "yes" : "no");
+    ESP_LOGI(TAG, "    - Embedded Flash: %s", (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "yes" : "no");
+    
+    if (major_rev == 1 && minor_rev == 3) {
+        ESP_LOGW(TAG, "WARNING: Silicon v1.3 is EOL (End of Life), consider upgrading to v3.x");
+    } else if (major_rev >= 3) {
+        ESP_LOGI(TAG, "Silicon v%d.%d is supported, errata mitigation enabled", major_rev, minor_rev);
+    }
+}
 
 static bool s_sntp_initialized = false;
 
@@ -348,6 +374,8 @@ static void register_native_apps(void)
 void app_main(void)
 {
     ESP_LOGI(TAG, "==================== ESP32-P4 PHONE SYSTEM START ====================");
+    
+    log_chip_info();
     
     ESP_LOGI(TAG, "Initializing BSP...");
     bsp_display_cfg_t cfg = {

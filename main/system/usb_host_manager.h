@@ -22,6 +22,9 @@ usb_host_state_t usb_host_manager_get_state(void);
 const char *usb_host_manager_get_mount_path(void);
 void usb_host_manager_register_event_cb(usb_host_event_cb_t cb);
 bool usb_host_manager_is_mounted(void);
+void usb_host_manager_begin_file_operation(void);
+void usb_host_manager_end_file_operation(void);
+int usb_host_manager_get_file_operation_count(void);
 
 #ifdef __cplusplus
 }

@@ -4,13 +4,8 @@
 
 | 项目 | 内容 |
 |------|------|
-<<<<<<< HEAD
-| 文档版本 | 7.7 |
+| 文档版本 | 7.9 |
 | 最后更新 | 2026-07-18 |
-=======
-| 文档版本 | 7.2 |
-| 最后更新 | 2026-07-17 |
->>>>>>> 59edecb4252cd3d57e3b64b45c5e374e30d05a81
 | 适用项目 | ESP32-P4 Phone |
 | 目标读者 | 嵌入式软件工程师、应用开发者、系统维护人员 |
 
@@ -1379,18 +1374,62 @@ esp_err_t app_manager_init(void);
 
 | 项目 | 值 |
 |------|-----|
-| 文档版本 | 7.8 |
+| 文档版本 | 7.9 |
 | 最后更新 | 2026-07-18 |
 | 构建状态 | ✅ 构建成功 |
 | 编译模式 | SIZE优化 |
-| 固件大小 | 0x1bbea0 字节（约1.74MB） |
-| 分区剩余 | 0x44160 字节（13%） |
-| Bootloader大小 | 0x5dd0 字节（2%空闲） |
+| 固件大小 | 0x1cc1a0 (1,884,576 bytes) |
+| 分区剩余 | 0x33e60 (211,040 bytes, 10%) |
+| Bootloader大小 | 0x5d50 (23,888 bytes) |
 | 构建命令 | `.\build.ps1` |
 | Kconfig警告 | ✅ 已清理无效配置项 |
 | 代码警告 | ✅ 无 |
 
-### 15.7 构建脚本说明
+### 15.8 ESP32-P4勘误修复
+
+针对ESP32-P4芯片勘误表中的关键问题，项目已实施以下修复：
+
+| 勘误编号 | 问题描述 | 修复方式 | 文件 |
+|----------|----------|----------|------|
+| MSPI-749 | 上电/唤醒失败 | 添加Light Sleep唤醒重试机制（最多3次重试） | [power_manager.c](file:///e:/phone/main/system/power_manager.c) |
+| MSPI-750 | PSRAM非对齐DMA读错误 | video_player_app.c帧缓冲使用MALLOC_CAP_DMA标志 | [video_player_app.c](file:///e:/phone/main/apps/video_player_app.c) |
+| MSPI-751 | 地址重叠时序问题 | memory_pool.c已有32字节对齐检查和缓存同步 | [memory_pool.c](file:///e:/phone/main/system/memory_pool.c) |
+| APM-560 | 未授权AHB访问阻塞 | 保持APM默认配置，开发阶段禁用 | sdkconfig |
+| DMA-767 | DMA通道0事务ID重叠 | 使用MALLOC_CAP_DMA标志自动分配合适通道 | 全局 |
+| I2C-308 | 多次读操作数据错误 | USB Host迁移到BSP新API，后续添加重试机制 | [usb_host_manager.c](file:///e:/phone/main/system/usb_host_manager.c) |
+
+### 15.9 关键修复汇总
+
+| 修复项 | 问题描述 | 修复内容 |
+|--------|----------|----------|
+| CPU频率配置 | 默认400MHz可能不可用 | 修改为360MHz（手册标称最大值） |
+| USB Host I2C冲突 | 使用legacy API初始化独立I2C总线 | 迁移到BSP的i2c_master API，共用I2C总线 |
+| PSRAM DMA对齐 | 视频帧缓冲未设置DMA标志 | 添加MALLOC_CAP_DMA标志 |
+| Light Sleep唤醒重试 | MSPI-749勘误可能导致唤醒失败 | 添加最多3次重试机制 |
+| USB Host热插拔保护 | 文件操作期间拔出U盘导致崩溃 | 添加文件操作计数器和状态检查 |
+| 芯片版本识别 | 无法根据版本应用勘误规避 | 添加esp_chip_info()调用和日志输出 |
+
+### 15.10 芯片版本识别
+
+项目启动时自动输出芯片版本信息：
+
+```
+I (1234) PHONE_SYSTEM: Chip Info:
+I (1235) PHONE_SYSTEM:   Model: ESP32-P4
+I (1236) PHONE_SYSTEM:   Silicon Revision: v3.2
+I (1237) PHONE_SYSTEM:   CPU Cores: 2
+I (1238) PHONE_SYSTEM:   Features:
+I (1239) PHONE_SYSTEM:     - WiFi: yes
+I (1240) PHONE_SYSTEM:     - BLE: yes
+I (1241) PHONE_SYSTEM:     - IEEE802.15.4: no
+I (1242) PHONE_SYSTEM:     - Embedded Flash: no
+I (1243) PHONE_SYSTEM: Silicon v3.2 is supported, errata mitigation enabled
+```
+
+- v1.3版本会输出警告（EOL）
+- v3.x版本会输出支持信息
+
+### 15.11 构建脚本说明
 
 **build.ps1** 提供一站式构建、烧录和推送功能：
 

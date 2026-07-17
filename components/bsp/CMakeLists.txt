@@ -6,6 +6,8 @@ else()
     set(PRIV_REQ "")
 endif()
 
+list(APPEND PRIV_REQ espressif__usb)
+
 idf_component_register(
     SRCS "bsp_camera.c" "esp32_p4_platform.c" "../bsp_st7102/bsp.c"
     INCLUDE_DIRS "include" "../bsp_st7102/include" "."

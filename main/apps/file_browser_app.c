@@ -237,6 +237,10 @@ static void scan_directory(void)
         return;
     }
 
+    if (strcmp(current_path, "/usb") == 0) {
+        usb_host_manager_begin_file_operation();
+    }
+
     DIR *dir = opendir(current_path);
     if (!dir) return;
 
@@ -294,6 +298,10 @@ static void scan_directory(void)
         lv_obj_set_style_text_font(empty_label, &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_color(empty_label, lv_color_hex(0x666666), 0);
         lv_obj_center(empty_label);
+    }
+
+    if (strcmp(current_path, "/usb") == 0) {
+        usb_host_manager_end_file_operation();
     }
 }
 

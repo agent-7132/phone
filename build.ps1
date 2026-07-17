@@ -1,8 +1,14 @@
-$env:IDF_PATH="D:\esp\v6.0.2\esp-idf"
-$env:IDF_PYTHON_ENV_PATH="C:\Users\agent\.espressif\python_env\idf6.0_py3.12_env"
-$env:IDF_TOOLS_PATH="C:\Espressif"
-$env:ESP_IDF_VERSION="6.0.2"
-$env:PATH="C:\Users\agent\.espressif\python_env\idf6.0_py3.12_env\Scripts;C:\Espressif\tools\ninja\1.12.1;C:\Espressif\tools\cmake\3.30.2\bin;C:\Espressif\tools\riscv32-esp-elf\esp-15.2.0_20251204\riscv32-esp-elf\bin;C:\Espressif\tools\xtensa-esp-elf\esp-15.2.0_20251204\xtensa-esp-elf\bin;C:\Espressif\tools\openocd-esp32\v0.12.0-esp32-20251204\openocd-esp32\bin;C:\Espressif\tools\dfu-util\0.11\dfu-util-0.11-win64;$env:PATH"
+$idfPath = "D:\esp\v6.0.2\esp-idf"
+$pythonPath = "C:\Users\agent\.espressif\python_env\idf6.0_py3.12_env\Scripts\python.exe"
+$idfToolsPath = "C:\Espressif"
+$espIdfVersion = "6.0.2"
+
+$env:IDF_PATH = $idfPath
+$env:IDF_PYTHON_ENV_PATH = "C:\Users\agent\.espressif\python_env\idf6.0_py3.12_env"
+$env:IDF_TOOLS_PATH = $idfToolsPath
+$env:ESP_IDF_VERSION = $espIdfVersion
+$env:ESP_ROM_ELF_DIR = "$idfPath\components\esp_rom\esp32p4"
+$env:PATH = "C:\Users\agent\.espressif\python_env\idf6.0_py3.12_env\Scripts;C:\Espressif\tools\ninja\1.12.1;C:\Espressif\tools\cmake\3.30.2\bin;C:\Espressif\tools\riscv32-esp-elf\esp-15.2.0_20251204\riscv32-esp-elf\bin;C:\Espressif\tools\xtensa-esp-elf\esp-15.2.0_20251204\xtensa-esp-elf\bin;C:\Espressif\tools\openocd-esp32\v0.12.0-esp32-20251204\openocd-esp32\bin;C:\Espressif\tools\dfu-util\0.11\dfu-util-0.11-win64;$env:PATH"
 
 cd e:\phone
 
@@ -34,6 +40,12 @@ function Write-Status {
     Write-Color $Message "Cyan"
 }
 
+function Run-IdfPy {
+    param([string]$Command)
+    & $pythonPath "$idfPath\tools\idf.py" $Command
+    return $LASTEXITCODE
+}
+
 if ($args[0] -eq "clean") {
     Write-Status "Cleaning build directory..."
     Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue
@@ -44,7 +56,7 @@ if ($args[0] -eq "clean") {
 
 if ($args[0] -eq "flash") {
     Write-Status "Flashing firmware to COM3..."
-    python "$env:IDF_PATH\tools\idf.py" -p COM3 flash
+    Run-IdfPy "-p COM3 flash"
     if ($LASTEXITCODE -eq 0) {
         Write-Success "Flash completed successfully."
         exit 0
@@ -56,13 +68,13 @@ if ($args[0] -eq "flash") {
 
 if ($args[0] -eq "monitor") {
     Write-Status "Starting monitor on COM3..."
-    python "$env:IDF_PATH\tools\idf.py" -p COM3 monitor
+    Run-IdfPy "-p COM3 monitor"
     exit 0
 }
 
 if ($args[0] -eq "flash_monitor") {
     Write-Status "Flashing and starting monitor..."
-    python "$env:IDF_PATH\tools\idf.py" -p COM3 flash monitor
+    Run-IdfPy "-p COM3 flash monitor"
     exit 0
 }
 
@@ -81,9 +93,8 @@ for ($i = 0; $i -lt $args.Count; $i++) {
 }
 
 Write-Status "Starting build..."
-python "$env:IDF_PATH\tools\idf.py" install-deps 2>&1 | Out-Null
 
-$buildOutput = python "$env:IDF_PATH\tools\idf.py" build 2>&1
+$buildOutput = & $pythonPath "$idfPath\tools\idf.py" build 2>&1
 if ($LASTEXITCODE -eq 0) {
     Write-Success "Build succeeded!"
     $sizeLine = $buildOutput | Where-Object { $_ -match "binary size" }

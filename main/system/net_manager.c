@@ -158,7 +158,32 @@ esp_err_t net_manager_init(void)
     }
 
 #if CONFIG_ESP_WIFI_REMOTE_ENABLED || CONFIG_ESP_WIFI_ENABLED
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    wifi_init_config_t cfg = {
+        .static_rx_buf_num = 10,
+        .dynamic_rx_buf_num = 32,
+        .tx_buf_type = 1,
+        .static_tx_buf_num = 0,
+        .dynamic_tx_buf_num = 32,
+        .rx_mgmt_buf_type = 0,
+        .rx_mgmt_buf_num = 5,
+        .cache_tx_buf_num = 0,
+        .csi_enable = 0,
+        .ampdu_rx_enable = 1,
+        .ampdu_tx_enable = 1,
+        .amsdu_tx_enable = 0,
+        .nvs_enable = 1,
+        .nano_enable = 0,
+        .rx_ba_win = 6,
+        .wifi_task_core_id = 0,
+        .beacon_max_len = 752,
+        .mgmt_sbuf_num = 32,
+        .feature_caps = 0,
+        .sta_disconnected_pm = 1,
+        .espnow_max_encrypt_num = 7,
+        .tx_hetb_queue_num = 0,
+        .dump_hesigb_enable = 0,
+        .magic = 0x1F2F3F4F
+    };
     ret = esp_wifi_init(&cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(ret));

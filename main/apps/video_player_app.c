@@ -131,7 +131,7 @@ static lv_obj_t *video_img = NULL;
 static void play_video_task(void *arg)
 {
     (void)arg;
-    uint8_t *frame_buffer = (uint8_t *)heap_caps_malloc(FRAME_BUFFER_SIZE, MALLOC_CAP_SPIRAM);
+    uint8_t *frame_buffer = (uint8_t *)heap_caps_malloc(FRAME_BUFFER_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA);
     if (!frame_buffer) {
         ESP_LOGE(TAG, "Failed to allocate frame buffer");
         vTaskDelete(NULL);
